@@ -1,19 +1,27 @@
 import React, { useState, useContext, useEffect } from 'react';
-import { SafeAreaView, View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
+import { SafeAreaView, View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { AuthContext } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import * as AuthSession from 'expo-auth-session';
 import { GOOGLE_CLIENT_ID, WEB_CLIENT_ID, EXPO_CLIENT_ID, ANDROID_CLIENT_ID, IOS_CLIENT_ID } from '../config/googleConfig';
+import {
+  checkBiometricAvailability,
+  authenticateWithBiometric,
+  saveBiometricCredentials,
+  getBiometricCredentials
+} from '../services/biometricService';
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [biometricsAvailable, setBiometricsAvailable] = useState(false);
+  const [biometricLoading, setBiometricLoading] = useState(false);
   const { login, googleLogin, isLoading } = useContext(AuthContext);
   const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
-  // If you get redirect_uri_mismatch, add this URI to the Google Console authorized redirect URIs.
+
   console.log('Google redirect URI (add this to Google Console):', redirectUri);
 
   const [, response, promptAsync] = Google.useAuthRequest({
@@ -28,7 +36,50 @@ export default function LoginScreen({ navigation }) {
 
   useEffect(() => {
     WebBrowser.maybeCompleteAuthSession();
+    initializeBiometrics();
   }, []);
+
+  const initializeBiometrics = async () => {
+    const result = await checkBiometricAvailability();
+    if (result.available) {
+      setBiometricsAvailable(true);
+    }
+  };
+
+  const handleBiometricLogin = async () => {
+    setBiometricLoading(true);
+    try {
+      const authResult = await authenticateWithBiometric();
+
+      if (!authResult.success) {
+        Alert.alert('Falha', authResult.error || 'Falha na autenticação biométrica');
+        setBiometricLoading(false);
+        return;
+      }
+
+      // Retrieve saved credentials and login
+      const credentialsResult = await getBiometricCredentials(email || '');
+
+      if (!credentialsResult.success || !credentialsResult.credentials) {
+        Alert.alert('Erro', 'Nenhuma credencial salva encontrada. Por favor, faça login normalmente primeiro.');
+        setBiometricLoading(false);
+        return;
+      }
+
+      const { email: savedEmail, password: savedPassword } = credentialsResult.credentials;
+      const loginResult = await login(savedEmail, savedPassword);
+
+      if (loginResult.success) {
+        navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+      } else {
+        Alert.alert('Erro', loginResult.error || 'Falha ao fazer login com dados salvos');
+      }
+    } catch (error) {
+      Alert.alert('Erro', error.message || 'Falha na autenticação biométrica');
+    } finally {
+      setBiometricLoading(false);
+    }
+  };
 
   useEffect(() => {
     const handleGoogleResponse = async () => {
@@ -57,87 +108,122 @@ export default function LoginScreen({ navigation }) {
       return;
     }
 
-    navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+    // Save credentials for biometric login if biometrics available
+    if (biometricsAvailable) {
+      try {
+        await saveBiometricCredentials(email, password);
+      } catch (error) {
+        console.error('Failed to save credentials:', error);
+      }
+    }
+
+    // Não precisamos fazer navigation.reset() aqui - o AuthNavigator vai reagir à mudança de estado
+    // navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.content}>
-            <View style={styles.hero}>
-              <Text style={styles.heroSubtitle}>Bem-vindo de volta</Text>
-              <Text style={styles.heroTitle}>Conecta Saúde</Text>
-              <Text style={styles.heroText}>Gerencie suas consultas, acesse seus profissionais e acompanhe sua saúde com rapidez.</Text>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="interactive"
+        >
+          <View style={styles.hero}>
+            <Text style={styles.heroSubtitle}>Bem-vindo</Text>
+            <Text style={styles.heroTitle}>Conecta Saúde</Text>
+            <Text style={styles.heroText}>Gerencie suas consultas, acesse seus profissionais e acompanhe sua saúde com rapidez.</Text>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.formHeader}>
+              <Text style={styles.formTitle}>Entrar</Text>
+              <Text style={styles.formDescription}>Use sua conta para continuar.</Text>
             </View>
 
-            <View style={styles.card}>
-              <View style={styles.formHeader}>
-                <Text style={styles.formTitle}>Entrar</Text>
-                <Text style={styles.formDescription}>Use sua conta para continuar.</Text>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Email</Text>
-                <View style={styles.inputBox}>
-                  <Ionicons name="mail-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="seu@email.com"
-                    placeholderTextColor="#9ca3af"
-                    value={email}
-                    onChangeText={setEmail}
-                    editable={!isLoading}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Senha</Text>
-                <View style={styles.inputBox}>
-                  <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="••••••••"
-                    placeholderTextColor="#9ca3af"
-                    value={password}
-                    onChangeText={setPassword}
-                    editable={!isLoading}
-                    secureTextEntry={!showPassword}
-                  />
-                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                    <Ionicons name={showPassword ? 'eye' : 'eye-off'} size={20} color="#94a3b8" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
+            {biometricsAvailable && (
               <TouchableOpacity
-                style={[styles.loginButton, isLoading && styles.disabledButton]}
-                onPress={handleLogin}
-                disabled={isLoading}
+                style={[styles.biometricButton, biometricLoading && styles.disabledButton]}
+                onPress={handleBiometricLogin}
+                disabled={biometricLoading}
               >
-                {isLoading ? (
-                  <ActivityIndicator color="white" />
+                {biometricLoading ? (
+                  <ActivityIndicator color="#2563eb" />
                 ) : (
-                  <Text style={styles.loginButtonText}>Entrar</Text>
+                  <>
+                    <Ionicons name="finger-print" size={32} color="#2563eb" />
+                    <Text style={styles.biometricButtonText}>Entrar com Impressão Digital</Text>
+                  </>
                 )}
               </TouchableOpacity>
+            )}
 
-              <Text style={styles.orText}>ou</Text>
-
-              <TouchableOpacity style={styles.googleButton} onPress={() => promptAsync({ useProxy: true })}>
-                <Ionicons name="logo-google" size={20} color="#1f2937" />
-                <Text style={styles.googleButtonText}>Entrar com Google</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={() => navigation.navigate('Register')} style={styles.bottomTextWrapper}>
-                <Text style={styles.registerText}>Não tem conta? <Text style={styles.registerLink}>Cadastre-se</Text></Text>
-              </TouchableOpacity>
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>ou</Text>
+              <View style={styles.dividerLine} />
             </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email</Text>
+              <View style={styles.inputBox}>
+                <Ionicons name="mail-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="seu@email.com"
+                  placeholderTextColor="#9ca3af"
+                  value={email}
+                  onChangeText={setEmail}
+                  editable={!isLoading}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Senha</Text>
+              <View style={styles.inputBox}>
+                <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="••••••••"
+                  placeholderTextColor="#9ca3af"
+                  value={password}
+                  onChangeText={setPassword}
+                  editable={!isLoading}
+                  secureTextEntry={!showPassword}
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                  <Ionicons name={showPassword ? 'eye' : 'eye-off'} size={20} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.loginButton, isLoading && styles.disabledButton]}
+              onPress={handleLogin}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text style={styles.loginButtonText}>Entrar</Text>
+              )}
+            </TouchableOpacity>
+
+            <Text style={styles.orText}>ou</Text>
+
+            <TouchableOpacity style={styles.googleButton} onPress={() => promptAsync({ useProxy: true })}>
+              <Ionicons name="logo-google" size={20} color="#1f2937" />
+              <Text style={styles.googleButtonText}>Entrar com Google</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => navigation.navigate('Register')} style={styles.bottomTextWrapper}>
+              <Text style={styles.registerText}>Não tem conta? <Text style={styles.registerLink}>Cadastre-se</Text></Text>
+            </TouchableOpacity>
           </View>
-        </TouchableWithoutFeedback>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -284,5 +370,37 @@ const styles = StyleSheet.create({
   registerLink: {
     color: '#2563eb',
     fontWeight: '700',
+  },
+  biometricButton: {
+    backgroundColor: '#f0f9ff',
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#2563eb',
+  },
+  biometricButtonText: {
+    color: '#2563eb',
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e2e8f0',
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    color: '#94a3b8',
+    fontSize: 13,
   },
 });

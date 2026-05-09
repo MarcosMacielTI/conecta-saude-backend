@@ -1,36 +1,24 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, useColorScheme, TextInput } from 'react-native';
+import React, { useEffect, useState, useContext } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usersAPI } from './api';
+import { useThemeColors } from './src/hooks/useTheme';
+import { AuthContext } from './src/context/AuthContext';
 
 function getPlanLabel(plan) {
-    if (!plan) return 'Nenhum';
-    const normalized = String(plan).toLowerCase();
+    if (!plan) return null;
+    const normalized = String(plan).trim().toLowerCase();
+    if (normalized === 'sem plano' || normalized === 'semplano') return null;
     if (normalized.includes('test') || normalized.includes('prem')) return 'Premium';
     if (normalized.includes('inter')) return 'Intermediário';
     if (normalized.includes('basic')) return 'Básico';
+    if (normalized === 'básico' || normalized === 'basico') return 'Básico';
     return plan;
 }
 
-function ProfessionalSearchScreen() {
-    const systemColorScheme = useColorScheme();
-    const isDark = systemColorScheme === 'dark';
-
-    const colors = {
-        background: isDark ? '#050f1c' : '#f3f4f6',
-        containerBg: isDark ? '#0f172a' : '#ffffff',
-        text: isDark ? '#f1f5f9' : '#0f172a',
-        textSecondary: isDark ? '#cbd5e1' : '#475569',
-        textTertiary: isDark ? '#94a3b8' : '#94a3b8',
-        border: isDark ? '#1e293b' : '#e2e8f0',
-        primary: '#2563eb',
-        card: isDark ? '#1e293b' : '#ffffff',
-        cardHover: isDark ? '#334155' : '#f9fafb',
-        inputBg: isDark ? '#0f172a' : '#f8fafc',
-        inputBorder: isDark ? '#334155' : '#e2e8f0',
-        success: '#10b981',
-        warning: '#f59e0b',
-    };
+function ProfessionalSearchScreen({ navigation }) {
+    const colors = useThemeColors();
+    const { user } = useContext(AuthContext);
 
     const [patients, setPatients] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
@@ -41,10 +29,13 @@ function ProfessionalSearchScreen() {
         const loadPatients = async () => {
             try {
                 setLoading(true);
+                // Busca todos os pacientes cadastrados no sistema
                 const response = await usersAPI.getAll('patient');
-                const normalized = response.data.map((patient) => ({
+                const normalized = (response.data || []).map((patient) => ({
                     id: patient._id || patient.id,
                     name: patient.name || 'Paciente',
+                    email: patient.email || '',
+                    cpf: patient.cpf || '',
                     plan: patient.plan || 'Nenhum',
                     status: patient.status || 'Ativo',
                     consultations: `${patient.consultationsLeft || 0}/3`,
@@ -52,13 +43,14 @@ function ProfessionalSearchScreen() {
                 setPatients(normalized);
             } catch (error) {
                 console.error('Erro ao buscar pacientes:', error);
+                setPatients([]);
             } finally {
                 setLoading(false);
             }
         };
 
         loadPatients();
-    }, []);
+    }, [user]);
 
     const filters = [
         { id: 'todos', label: 'Todos', icon: 'people' },
@@ -68,7 +60,11 @@ function ProfessionalSearchScreen() {
     ];
 
     const filteredPatients = patients.filter((patient) => {
-        const matchesSearch = patient.name.toLowerCase().includes(searchQuery.toLowerCase());
+        const query = searchQuery.toLowerCase();
+        const matchesSearch =
+            patient.name.toLowerCase().includes(query) ||
+            patient.email.toLowerCase().includes(query) ||
+            patient.cpf.toLowerCase().includes(query);
         const normalizedPlan = getPlanLabel(patient.plan);
         let matchesFilter = true;
 
@@ -101,7 +97,7 @@ function ProfessionalSearchScreen() {
                     <Ionicons name="search" size={20} color={colors.textTertiary} />
                     <TextInput
                         style={[styles.searchInput, { color: colors.text }]}
-                        placeholder="Procurar paciente..."
+                        placeholder="Buscar paciente por nome, email ou CPF"
                         placeholderTextColor={colors.textTertiary}
                         value={searchQuery}
                         onChangeText={setSearchQuery}
@@ -158,6 +154,7 @@ function ProfessionalSearchScreen() {
                             <Pressable
                                 key={patient.id}
                                 style={[styles.patientCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+                                onPress={() => navigation.navigate('Chat', { patient })}
                             >
                                 <View style={[styles.patientAvatar, { backgroundColor: colors.cardHover }]}>
                                     <Ionicons name="person" size={24} color={colors.primary} />
@@ -166,13 +163,22 @@ function ProfessionalSearchScreen() {
                                 <View style={styles.patientInfo}>
                                     <View style={styles.patientHeader}>
                                         <Text style={[styles.patientName, { color: colors.text }]}>{patient.name}</Text>
-                                        <View style={[styles.planBadge, { backgroundColor: `${getPlanColor(getPlanLabel(patient.plan))}20` }]}>
-                                            <Ionicons name="star" size={12} color={getPlanColor(getPlanLabel(patient.plan))} />
-                                            <Text style={[styles.planText, { color: getPlanColor(getPlanLabel(patient.plan)) }]}>
-                                                {getPlanLabel(patient.plan)}
-                                            </Text>
-                                        </View>
+                                        {getPlanLabel(patient.plan) ? (
+                                            <View style={[styles.planBadge, { backgroundColor: `${getPlanColor(getPlanLabel(patient.plan))}20` }]}>
+                                                <Ionicons name="star" size={12} color={getPlanColor(getPlanLabel(patient.plan))} />
+                                                <Text style={[styles.planText, { color: getPlanColor(getPlanLabel(patient.plan)) }]}>
+                                                    {getPlanLabel(patient.plan)}
+                                                </Text>
+                                            </View>
+                                        ) : (
+                                            <View style={[styles.planBadge, { backgroundColor: `${colors.textTertiary}20` }]}>
+                                                <Ionicons name="star" size={12} color={colors.textTertiary} />
+                                                <Text style={[styles.planText, { color: colors.textTertiary }]}>Nenhum</Text>
+                                            </View>
+                                        )}
                                     </View>
+                                    <Text style={[styles.detailText, { color: colors.textSecondary, marginTop: 4 }]}>Email: {patient.email}</Text>
+                                    <Text style={[styles.detailText, { color: colors.textSecondary, marginTop: 2 }]}>CPF: {patient.cpf}</Text>
 
                                     <View style={styles.patientDetails}>
                                         <View style={styles.detailItem}>

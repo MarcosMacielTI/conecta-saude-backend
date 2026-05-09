@@ -1,70 +1,131 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, StyleSheet, FlatList, Pressable, Image, ActivityIndicator, useColorScheme } from 'react-native';
+import React, { useEffect, useState, useContext } from 'react';
+import { View, Text, TextInput, StyleSheet, FlatList, Pressable, Image, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { professionalsAPI } from './api';
+import { professionalsAPI, connectionsAPI } from './api';
+import { useThemeColors } from './src/hooks/useTheme';
+import { AuthContext } from './src/context/AuthContext';
+
+function getPlanLabel(plan) {
+  if (!plan) return null;
+  const normalized = String(plan).trim().toLowerCase();
+  if (normalized === 'sem plano' || normalized === 'semplano') return null;
+  if (normalized.includes('test') || normalized.includes('prem')) return 'Premium';
+  if (normalized.includes('inter')) return 'Intermediário';
+  if (normalized.includes('basic')) return 'Básico';
+  if (normalized === 'básico' || normalized === 'basico') return 'Básico';
+  return plan;
+}
 
 export default function SearchScreen({ navigation }) {
-  const systemColorScheme = useColorScheme();
-  const isDark = systemColorScheme === 'dark';
-
-  const colors = {
-    background: isDark ? '#050f1c' : '#f3f4f6',
-    card: isDark ? '#0f172a' : '#ffffff',
-    text: isDark ? '#f1f5f9' : '#0f172a',
-    textSecondary: isDark ? '#cbd5e1' : '#475569',
-    inputBg: isDark ? '#0f172a' : '#ffffff',
-    border: isDark ? '#334155' : '#e2e8f0',
-    primary: '#2563eb',
-  };
+  const colors = useThemeColors();
+  const { user, updateUser } = useContext(AuthContext);
 
   const [professionals, setProfessionals] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(null);
+
+  const activePlan = getPlanLabel(user?.plan);
+
+  const normalizeProfessional = (prof) => ({
+    id: prof._id || prof.id,
+    name: prof.name || prof.nome || 'Profissional',
+    specialty: prof.specialty || prof.especialidade || 'Especialidade não informada',
+    email: prof.email || prof.email || '',
+    qualifications: prof.qualifications || prof.qualificacoes || [],
+    avatar: prof.image || 'https://i.pravatar.cc/150?img=5',
+    price: prof.price || prof.preco || 'Preço não informado',
+    availability: prof.availability || prof.disponibilidade || 'Disponível',
+    raw: prof,
+  });
+
+  const loadProfessionals = async (query = '') => {
+    try {
+      setLoading(true);
+      const response = query.trim()
+        ? await professionalsAPI.search(query.trim())
+        : await professionalsAPI.getAll();
+
+      const normalized = response.data.map(normalizeProfessional);
+      setProfessionals(normalized);
+    } catch (error) {
+      console.error('Erro ao buscar profissionais:', error);
+      setProfessionals([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchProfessionals = async () => {
-      try {
-        setLoading(true);
-        const response = await professionalsAPI.getAll();
-        const normalized = response.data.map((prof) => ({
-          id: prof._id || prof.id,
-          name: prof.name || prof.nome || 'Profissional',
-          specialty: prof.specialty || prof.especialty || 'Especialidade não informada',
-          avatar: prof.image || 'https://i.pravatar.cc/150?img=5',
-          price: prof.price || prof.preco || 'Preço não informado',
-          availability: prof.availability || prof.disponibilidade || 'Disponível',
-          raw: prof,
-        }));
-        setProfessionals(normalized);
-      } catch (error) {
-        console.error('Erro ao buscar profissionais:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProfessionals();
+    loadProfessionals();
   }, []);
 
-  const filteredProfessionals = professionals.filter((item) =>
-    item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.specialty.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const handleConnect = async (professionalId) => {
+    if (!activePlan) {
+      Alert.alert('Plano necessário', 'Escolha um plano para conectar com um profissional.');
+      navigation.navigate('Plans');
+      return;
+    }
+
+    if (user?.professionalId) {
+      Alert.alert('Profissional já conectado', 'Você já possui um profissional vinculado.');
+      return;
+    }
+
+    try {
+      setConnecting(professionalId);
+      await connectionsAPI.connect(professionalId);
+
+      // Update user context with new professional
+      if (updateUser) {
+        updateUser({ ...user, professionalId });
+      }
+
+      Alert.alert('Sucesso', 'Conectado ao profissional com sucesso!');
+      navigation.goBack();
+    } catch (error) {
+      console.error('Erro ao conectar:', error);
+      const errorMsg = error.response?.data?.error || 'Erro ao conectar com profissional';
+      Alert.alert('Erro', errorMsg);
+    } finally {
+      setConnecting(null);
+    }
+  };
+
+  const handleSearch = (query) => {
+    setSearchQuery(query);
+    loadProfessionals(query);
+  };
+
+  const filteredProfessionals = professionals.filter((item) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      item.name.toLowerCase().includes(query) ||
+      item.specialty.toLowerCase().includes(query) ||
+      item.email.toLowerCase().includes(query)
+    );
+  });
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.card }]}>
-        <Text style={[styles.title, { color: colors.text }]}>Buscar profissionais</Text>
+      <View style={[styles.header, { backgroundColor: colors.containerBg, borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
+        <View style={styles.headerLeft}>
+          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="chevron-back" size={24} color={colors.primary} />
+          </Pressable>
+        </View>
+        <Text style={[styles.title, { color: colors.text }]}>Profissionais</Text>
+        <View style={styles.headerRight} />
       </View>
 
       <View style={[styles.searchBox, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
         <Ionicons name="search" size={20} color={colors.textSecondary} style={styles.searchIcon} />
         <TextInput
           style={[styles.input, { color: colors.text }]}
-          placeholder="Pesquisar por nome ou especialidade"
+          placeholder="Pesquisar por nome, email ou CPF"
           placeholderTextColor={colors.textSecondary}
           value={searchQuery}
-          onChangeText={setSearchQuery}
+          onChangeText={handleSearch}
         />
       </View>
 
@@ -84,16 +145,44 @@ export default function SearchScreen({ navigation }) {
           keyExtractor={(item) => String(item.id)}
           contentContainerStyle={styles.list}
           renderItem={({ item }) => (
-            <Pressable
-              style={[styles.item, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={() => navigation.navigate('ProfessionalProfile', { medico: item })}
-            >
-              <Image source={{ uri: item.avatar }} style={styles.avatar} />
-              <View style={styles.info}>
-                <Text style={[styles.name, { color: colors.text }]}>{item.name}</Text>
-                <Text style={[styles.specialty, { color: colors.textSecondary }]}>{item.specialty}</Text>
-              </View>
-            </Pressable>
+            <View style={[styles.item, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Pressable
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
+                onPress={() => navigation.navigate('ProfessionalProfile', { medico: item })}
+              >
+                <Image source={{ uri: item.avatar }} style={styles.avatar} />
+                <View style={styles.info}>
+                  <Text style={[styles.name, { color: colors.text }]}>{item.name}</Text>
+                  <Text style={[styles.specialty, { color: colors.textSecondary }]}>{item.specialty}</Text>
+                  {item.qualifications?.length > 0 && (
+                    <Text style={[styles.qualifications, { color: colors.textSecondary }]}>Qualificações: {item.qualifications.join(', ')}</Text>
+                  )}
+                  <Text style={[styles.email, { color: colors.textSecondary }]}>{item.email}</Text>
+                  <View style={styles.footerInfo}>
+                    <Text style={[styles.availability, { color: colors.success }]}>Disponível: {item.availability}</Text>
+                    <Text style={[styles.price, { color: colors.textSecondary }]}>{item.price}</Text>
+                  </View>
+                </View>
+              </Pressable>
+
+              {user?.role === 'patient' && !user?.professionalId && (
+                <Pressable
+                  style={[
+                    styles.connectButton,
+                    {
+                      backgroundColor: activePlan ? colors.primary : colors.border,
+                      marginLeft: 12
+                    }
+                  ]}
+                  onPress={() => handleConnect(item.id)}
+                  disabled={connecting === item.id || !activePlan}
+                >
+                  <Text style={styles.connectButtonText}>
+                    {connecting === item.id ? 'Conectando...' : 'Conectar'}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
           )}
         />
       )}
@@ -103,8 +192,31 @@ export default function SearchScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingHorizontal: 16, paddingVertical: 16, borderBottomWidth: 1 },
-  title: { fontSize: 24, fontWeight: '700' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    position: 'relative',
+    borderBottomWidth: 1,
+  },
+  headerLeft: {
+    position: 'absolute',
+    left: 8,
+  },
+  headerRight: {
+    position: 'absolute',
+    right: 8,
+  },
+  backBtn: {
+    padding: 8,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   searchBox: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, margin: 16, borderWidth: 1, borderRadius: 12 },
   searchIcon: { marginRight: 8 },
   input: { flex: 1, fontSize: 16 },
@@ -118,4 +230,17 @@ const styles = StyleSheet.create({
   info: { flex: 1 },
   name: { fontSize: 16, fontWeight: '700' },
   specialty: { marginTop: 4, fontSize: 14 },
+  qualifications: { marginTop: 4, fontSize: 13 },
+  email: { marginTop: 4, fontSize: 13 },
+  footerInfo: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
+  availability: { fontSize: 13, fontWeight: '600' },
+  price: { fontSize: 13 },
+  connectButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  connectButtonText: { color: 'white', fontWeight: '700' },
 });

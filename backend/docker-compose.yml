@@ -1,13 +1,51 @@
 version: '3.8'
+
 services:
+  app:
+    build: .
+    container_name: conecta_saude_app
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongo:27017/conecta_saude
+    depends_on:
+      - mongo
+    networks:
+      - conecta_network
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./logs:/usr/src/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
   mongo:
-    image: mongo:6
+    image: mongo:7-jammy
     container_name: conecta_mongo
     restart: unless-stopped
     ports:
       - '27017:27017'
+    environment:
+      - MONGO_INITDB_DATABASE=conecta_saude
     volumes:
       - mongo_data:/data/db
+    networks:
+      - conecta_network
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   mongo_data:
+
+networks:
+  conecta_network:
+    driver: bridge

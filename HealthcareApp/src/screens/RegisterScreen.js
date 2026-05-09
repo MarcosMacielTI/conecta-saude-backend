@@ -1,6 +1,7 @@
 import React, { useState, useContext, useEffect } from 'react';
-import { SafeAreaView, View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
+import { SafeAreaView, View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { AuthContext } from '../context/AuthContext';
+import BackButton from '../components/BackButton';
 import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
@@ -55,6 +56,7 @@ export default function RegisterScreen({ navigation }) {
   }, [response]);
 
   const handleRegister = async () => {
+    console.log('handleRegister called with:', { name, email, cpf, role });
     if (!name || !email || !cpf || !password || !confirmPassword) {
       Alert.alert('Erro', 'Preencha todos os campos');
       return;
@@ -70,176 +72,178 @@ export default function RegisterScreen({ navigation }) {
       return;
     }
 
+    console.log('Calling register function...');
     const result = await register(name, email, password, cpf, role);
+    console.log('Register result:', result);
+
     if (!result.success) {
+      console.log('Registration failed with error:', result.error);
       Alert.alert('Erro', result.error);
       return;
     }
 
-    navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+    console.log('Registration successful, letting AuthNavigator handle navigation...');
+    // Não precisamos fazer navigation.reset() aqui - o AuthNavigator vai reagir à mudança de estado
+    // navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <ScrollView
-            contentContainerStyle={styles.content}
-            keyboardShouldPersistTaps="always"
-            keyboardDismissMode="on-drag"
-          >
-            <View style={styles.hero}>
-              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                <Ionicons name="chevron-back" size={22} color="#2563eb" />
-              </TouchableOpacity>
-              <Text style={styles.heroTitle}>Criar conta</Text>
-              <Text style={styles.heroSubtitle}>Escolha seu acesso e seja bem-vindo à Conecta Saúde.</Text>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="interactive"
+        >
+          <View style={styles.hero}>
+            <BackButton onPress={() => navigation.goBack()} />
+            <Text style={styles.heroTitle}>Criar conta</Text>
+            <Text style={styles.heroSubtitle}>Escolha seu acesso e seja bem-vindo à Conecta Saúde.</Text>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.formHeader}>
+              <Text style={styles.formTitle}>Seus dados</Text>
+              <Text style={styles.formDescription}>Preencha as informações abaixo para começar.</Text>
             </View>
 
-            <View style={styles.card}>
-              <View style={styles.formHeader}>
-                <Text style={styles.formTitle}>Seus dados</Text>
-                <Text style={styles.formDescription}>Preencha as informações abaixo para começar.</Text>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Nome Completo</Text>
+              <View style={styles.inputBox}>
+                <Ionicons name="person-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="João Silva"
+                  placeholderTextColor="#9ca3af"
+                  value={name}
+                  onChangeText={setName}
+                  editable={!isLoading}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                />
               </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Nome Completo</Text>
-                <View style={styles.inputBox}>
-                  <Ionicons name="person-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="João Silva"
-                    placeholderTextColor="#9ca3af"
-                    value={name}
-                    onChangeText={setName}
-                    editable={!isLoading}
-                    autoCapitalize="words"
-                    autoCorrect={false}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Email</Text>
-                <View style={styles.inputBox}>
-                  <Ionicons name="mail-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="seu@email.com"
-                    placeholderTextColor="#9ca3af"
-                    value={email}
-                    onChangeText={setEmail}
-                    editable={!isLoading}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>CPF</Text>
-                <View style={styles.inputBox}>
-                  <Ionicons name="document-text-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="123.456.789-10"
-                    placeholderTextColor="#9ca3af"
-                    value={cpf}
-                    onChangeText={setCpf}
-                    editable={!isLoading}
-                    keyboardType="numeric"
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Tipo de Usuário</Text>
-                <View style={styles.roleContainer}>
-                  <TouchableOpacity
-                    style={[styles.roleButton, role === 'patient' && styles.roleButtonActive]}
-                    onPress={() => setRole('patient')}
-                    disabled={isLoading}
-                  >
-                    <Text style={[styles.roleButtonText, role === 'patient' && styles.roleButtonTextActive]}>Paciente</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.roleButton, role === 'professional' && styles.roleButtonActive]}
-                    onPress={() => setRole('professional')}
-                    disabled={isLoading}
-                  >
-                    <Text style={[styles.roleButtonText, role === 'professional' && styles.roleButtonTextActive]}>Profissional</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Senha</Text>
-                <View style={styles.inputBox}>
-                  <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="••••••••"
-                    placeholderTextColor="#9ca3af"
-                    value={password}
-                    onChangeText={setPassword}
-                    editable={!isLoading}
-                    secureTextEntry={!showPassword}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                    <Ionicons name={showPassword ? 'eye' : 'eye-off'} size={20} color="#94a3b8" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Confirmar Senha</Text>
-                <View style={styles.inputBox}>
-                  <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="••••••••"
-                    placeholderTextColor="#9ca3af"
-                    value={confirmPassword}
-                    onChangeText={setConfirmPassword}
-                    editable={!isLoading}
-                    secureTextEntry={!showConfirmPassword}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-                    <Ionicons name={showConfirmPassword ? 'eye' : 'eye-off'} size={20} color="#94a3b8" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <TouchableOpacity
-                style={[styles.registerButton, isLoading && styles.disabledButton]}
-                onPress={handleRegister}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <ActivityIndicator color="white" />
-                ) : (
-                  <Text style={styles.registerButtonText}>Cadastrar</Text>
-                )}
-              </TouchableOpacity>
-
-              <Text style={styles.orText}>ou</Text>
-
-              <TouchableOpacity style={styles.googleButton} onPress={() => promptAsync({ useProxy: true })}>
-                <Ionicons name="logo-google" size={20} color="#1f2937" />
-                <Text style={styles.googleButtonText}>Continuar com Google</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={() => navigation.navigate('Login')} style={styles.bottomTextWrapper}>
-                <Text style={styles.loginText}>Já tem conta? <Text style={styles.loginLink}>Entre aqui</Text></Text>
-              </TouchableOpacity>
             </View>
-          </ScrollView>
-        </TouchableWithoutFeedback>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email</Text>
+              <View style={styles.inputBox}>
+                <Ionicons name="mail-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="seu@email.com"
+                  placeholderTextColor="#9ca3af"
+                  value={email}
+                  onChangeText={setEmail}
+                  editable={!isLoading}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>CPF</Text>
+              <View style={styles.inputBox}>
+                <Ionicons name="document-text-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="123.456.789-10"
+                  placeholderTextColor="#9ca3af"
+                  value={cpf}
+                  onChangeText={setCpf}
+                  editable={!isLoading}
+                  keyboardType="numeric"
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Tipo de Usuário</Text>
+              <View style={styles.roleContainer}>
+                <TouchableOpacity
+                  style={[styles.roleButton, role === 'patient' && styles.roleButtonActive]}
+                  onPress={() => setRole('patient')}
+                  disabled={isLoading}
+                >
+                  <Text style={[styles.roleButtonText, role === 'patient' && styles.roleButtonTextActive]}>Paciente</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.roleButton, role === 'professional' && styles.roleButtonActive]}
+                  onPress={() => setRole('professional')}
+                  disabled={isLoading}
+                >
+                  <Text style={[styles.roleButtonText, role === 'professional' && styles.roleButtonTextActive]}>Profissional</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Senha</Text>
+              <View style={styles.inputBox}>
+                <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="••••••••"
+                  placeholderTextColor="#9ca3af"
+                  value={password}
+                  onChangeText={setPassword}
+                  editable={!isLoading}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                  <Ionicons name={showPassword ? 'eye' : 'eye-off'} size={20} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Confirmar Senha</Text>
+              <View style={styles.inputBox}>
+                <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="••••••••"
+                  placeholderTextColor="#9ca3af"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  editable={!isLoading}
+                  secureTextEntry={!showConfirmPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
+                  <Ionicons name={showConfirmPassword ? 'eye' : 'eye-off'} size={20} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.registerButton, isLoading && styles.disabledButton]}
+              onPress={handleRegister}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text style={styles.registerButtonText}>Cadastrar</Text>
+              )}
+            </TouchableOpacity>
+
+            <Text style={styles.orText}>ou</Text>
+
+            <TouchableOpacity style={styles.googleButton} onPress={() => promptAsync({ useProxy: true })}>
+              <Ionicons name="logo-google" size={20} color="#1f2937" />
+              <Text style={styles.googleButtonText}>Continuar com Google</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => navigation.navigate('Login')} style={styles.bottomTextWrapper}>
+              <Text style={styles.loginText}>Já tem conta? <Text style={styles.loginLink}>Entre aqui</Text></Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

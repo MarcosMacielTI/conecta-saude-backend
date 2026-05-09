@@ -1,5 +1,5 @@
 import { useState, createContext, useContext, useEffect } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View, TextInput, Image, FlatList, Switch, useColorScheme } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View, TextInput, Image, FlatList, Switch } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -7,76 +7,37 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import LoginScreen from './src/screens/LoginScreen';
 import ChatScreen from './ChatScreen';
+import ConversationsHistoryScreen from './src/screens/ConversationsHistoryScreen';
 import VideoScreen from './VideoScreen';
 import ActivePlanScreen from './ActivePlanScreen';
+import PlansScreen from './PlansScreen';
 import ProfessionalScreen from './ProfessionalScreen';
 import ProfessionalAgendaScreen from './ProfessionalAgendaScreen';
 import ProfessionalSearchScreen from './ProfessionalSearchScreen';
-import { professionalsAPI, subscriptionsAPI } from './api';
+import ProfessionalReportsScreen from './ProfessionalReportsScreen';
+import ProfessionalRecordsScreen from './ProfessionalRecordsScreen';
+import CalendarScreen from './CalendarScreen';
+import { professionalsAPI, subscriptionsAPI, connectionsAPI } from './api';
 import { AuthProvider, AuthContext } from './src/context/AuthContext';
+import { ThemeProvider, useTheme } from './src/context/ThemeContext';
+import BackButton from './src/components/BackButton';
 import RegisterScreen from './src/screens/RegisterScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 const ProfContext = createContext();
-const ThemeContext = createContext();
 
-function getThemeMode(theme, systemColorScheme = 'dark') {
-  if (theme === 'Padrão do sistema') {
-    return systemColorScheme === 'light' ? 'Claro' : 'Escuro';
-  }
-  if (theme === 'Claro' || theme === 'Escuro') {
-    return theme;
-  }
-  return 'Escuro';
-}
-
-// Paleta de cores para temas
-const themeColors = {
-  Claro: {
-    background: '#f3f4f6',
-    containerBg: '#ffffff',
-    text: '#0f172a',
-    textSecondary: '#475569',
-    textTertiary: '#94a3b8',
-    border: '#e2e8f0',
-    primary: '#2563eb',
-    primaryLight: '#3b82f6',
-    card: '#ffffff',
-    cardHover: '#f9fafb',
-    inputBg: '#f8fafc',
-    inputBorder: '#e2e8f0',
-    success: '#10b981',
-    warning: '#f59e0b',
-    error: '#ef4444',
-  },
-  Escuro: {
-    background: '#050f1c',
-    containerBg: '#0f172a',
-    text: '#f1f5f9',
-    textSecondary: '#cbd5e1',
-    textTertiary: '#94a3b8',
-    border: '#1e293b',
-    primary: '#3b82f6',
-    primaryLight: '#60a5fa',
-    card: '#1e293b',
-    cardHover: '#334155',
-    inputBg: '#0f172a',
-    inputBorder: '#334155',
-    success: '#10b981',
-    warning: '#f59e0b',
-    error: '#ef4444',
-  },
-};
-
-function getThemeColors(themeName) {
-  return themeColors[themeName] || themeColors.Escuro;
+function normalizePlan(plan) {
+  if (!plan) return null;
+  const value = String(plan).trim().toLowerCase();
+  if (value === 'sem plano' || value === 'semplano' || value === 'none' || value === 'no plan') return null;
+  return value;
 }
 
 function getPlanLabel(plan) {
-  if (!plan) return 'Básico';
-  const normalized = plan.toLowerCase();
+  const normalized = normalizePlan(plan);
+  if (!normalized) return null;
   if (normalized.includes('test')) return 'Premium';
   if (normalized.includes('prem')) return 'Premium';
   if (normalized.includes('inter')) return 'Intermediário';
@@ -97,14 +58,45 @@ function getGreeting() {
 function HomeScreen({ navigation }) {
   const { profData } = useContext(ProfContext);
   const { user } = useContext(AuthContext);
-  const { theme } = useContext(ThemeContext);
-  const colors = getThemeColors(theme);
+  const { colors } = useTheme();
 
   const userName = user?.name ? user.name : 'Usuário';
-  const planLabel = getPlanLabel(user?.plan);
-  const planText = user?.plan ? `Plano ${planLabel} Ativo` : 'Sem plano ativo';
+  const activePlanLabel = getPlanLabel(user?.plan);
+  const planText = activePlanLabel ? `Plano ${activePlanLabel} Ativo` : 'Sem plano ativo';
   const consultationsLeft = user?.consultationsLeft ?? 0;
   const greeting = getGreeting();
+
+  const [professional, setProfessional] = useState(null);
+  const [professionalLoading, setProfessionalLoading] = useState(true);
+
+  useEffect(() => {
+    const loadProfessional = async () => {
+      if (!user || user.role !== 'patient') {
+        setProfessionalLoading(false);
+        return;
+      }
+
+      try {
+        let prof = null;
+        if (user.professionalId) {
+          const response = await professionalsAPI.getById(user.professionalId);
+          prof = response.data;
+        }
+        if (!prof) {
+          const response = await professionalsAPI.getProfessional();
+          prof = response.data;
+        }
+        setProfessional(prof || null);
+      } catch (error) {
+        console.error('Erro ao carregar profissional conectado:', error);
+        setProfessional(null);
+      } finally {
+        setProfessionalLoading(false);
+      }
+    };
+
+    loadProfessional();
+  }, [user]);
 
   return (
     <ScrollView style={[styles.homeContainer, { backgroundColor: colors.background }]} contentContainerStyle={{ paddingBottom: 100 }}>
@@ -136,7 +128,43 @@ function HomeScreen({ navigation }) {
         </View>
       </View>
 
+      {user?.role === 'patient' && (
+        <View style={[styles.connectedProfessionalCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+
+          <View style={styles.connectedProfessionalHeader}>
+            <Text style={[styles.connectedProfessionalTitle, { color: colors.text }]}>Seu profissional conectado</Text>
+            {!professionalLoading && !professional && (
+              <Text style={[styles.connectedProfessionalSubtitle, { color: colors.textSecondary }]}>Nenhum profissional encontrado</Text>
+            )}
+          </View>
+
+          {professionalLoading ? (
+            <Text style={[styles.connectedProfessionalSubtitle, { color: colors.textSecondary }]}>Carregando profissional...</Text>
+          ) : professional ? (
+            <View style={styles.connectedProfessionalInfo}>
+              <View style={[styles.connectedProfessionalAvatar, { backgroundColor: colors.primary }]}>
+                <Ionicons name="person" size={24} color="white" />
+              </View>
+              <View style={styles.connectedProfessionalDetails}>
+                <Text style={[styles.connectedProfessionalName, { color: colors.text }]}>{professional.name || 'Profissional'}</Text>
+                <Text style={[styles.connectedProfessionalSpecialty, { color: colors.textSecondary }]}>{professional.specialty || 'Especialidade não informada'}</Text>
+                <Text style={[styles.connectedProfessionalClients, { color: colors.textSecondary }]}>{professional.clients?.length ?? 0} paciente(s) conectado(s)</Text>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      )}
+
       {/* Ações Rápidas */}
+      {user?.role === 'patient' && !activePlanLabel && (
+        <View style={[styles.planAlertCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+          <Text style={[styles.planAlertTitle, { color: colors.text }]}>Você ainda não possui um plano ativo.</Text>
+          <Text style={[styles.planAlertText, { color: colors.textSecondary }]}>Para conversar com profissionais e agendar consultas, escolha um plano.</Text>
+          <Pressable onPress={() => navigation.navigate('Plans')} style={[styles.planAlertButton, { backgroundColor: colors.primary }]}>
+            <Text style={styles.planAlertButtonText}>Ver Planos</Text>
+          </Pressable>
+        </View>
+      )}
       <View style={styles.actionsSection}>
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Como podemos ajudar?</Text>
         <View style={styles.actionGrid}>
@@ -161,6 +189,17 @@ function HomeScreen({ navigation }) {
             <Text style={[styles.actionCardTitle, { color: colors.text }]}>Chat Rápido</Text>
             <Text style={[styles.actionCardSubtitle, { color: colors.textSecondary }]}>Dúvidas simples e ajustes</Text>
           </Pressable>
+
+          <Pressable
+            onPress={() => navigation.navigate('ConversationsHistory')}
+            style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+          >
+            <View style={[styles.actionIcon, { backgroundColor: `${colors.secondary}20` }]}>
+              <Ionicons name="chatbubbles" size={24} color={colors.secondary} />
+            </View>
+            <Text style={[styles.actionCardTitle, { color: colors.text }]}>Histórico</Text>
+            <Text style={[styles.actionCardSubtitle, { color: colors.textSecondary }]}>Ver todas as conversas</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -168,7 +207,21 @@ function HomeScreen({ navigation }) {
   );
 }
 
+function PatientStackNavigator() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="PatientTabs" component={PatientTabNavigator} />
+      <Stack.Screen name="Plans" component={PlansScreen} />
+      <Stack.Screen name="Video" component={VideoScreen} />
+      <Stack.Screen name="Chat" component={ChatScreen} />
+      <Stack.Screen name="ConversationsHistory" component={ConversationsHistoryScreen} />
+    </Stack.Navigator>
+  );
+}
+
 function PatientTabNavigator() {
+  const { colors } = useTheme();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -190,9 +243,17 @@ function PatientTabNavigator() {
           return <Ionicons name={iconName} size={size} color={color} />;
         },
         tabBarLabel: route.name === 'Home' ? 'Início' : route.name === 'Calendar' ? 'Agenda' : route.name === 'Chat' ? 'Conversas' : route.name === 'Search' ? 'Buscar' : 'Perfil',
-        tabBarActiveTintColor: '#2563eb',
-        tabBarInactiveTintColor: 'gray',
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textSecondary,
+        tabBarStyle: {
+          backgroundColor: colors.containerBg,
+          borderTopColor: colors.border,
+          borderTopWidth: 1,
+        },
+        tabBarActiveBackgroundColor: colors.cardHover,
+        tabBarInactiveBackgroundColor: colors.containerBg,
         headerShown: false,
+        sceneContainerStyle: { backgroundColor: colors.background },
       })}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
@@ -204,7 +265,22 @@ function PatientTabNavigator() {
   );
 }
 
+function ProfessionalStackNavigator() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="ProfessionalTabs" component={ProfessionalTabNavigator} />
+      <Stack.Screen name="Reports" component={ProfessionalReportsScreen} />
+      <Stack.Screen name="Records" component={ProfessionalRecordsScreen} />
+      <Stack.Screen name="ProfAgenda" component={ProfessionalAgendaScreen} />
+      <Stack.Screen name="Chat" component={ChatScreen} />
+      <Stack.Screen name="Video" component={VideoScreen} />
+    </Stack.Navigator>
+  );
+}
+
 function ProfessionalTabNavigator() {
+  const { colors } = useTheme();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -226,9 +302,17 @@ function ProfessionalTabNavigator() {
           return <Ionicons name={iconName} size={size} color={color} />;
         },
         tabBarLabel: route.name === 'ProfHome' ? 'Início' : route.name === 'ProfAgenda' ? 'Agenda' : route.name === 'ProfChat' ? 'Conversas' : route.name === 'ProfSearch' ? 'Buscar' : 'Perfil',
-        tabBarActiveTintColor: '#2563eb',
-        tabBarInactiveTintColor: 'gray',
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textSecondary,
+        tabBarStyle: {
+          backgroundColor: colors.containerBg,
+          borderTopColor: colors.border,
+          borderTopWidth: 1,
+        },
+        tabBarActiveBackgroundColor: colors.cardHover,
+        tabBarInactiveBackgroundColor: colors.containerBg,
         headerShown: false,
+        sceneContainerStyle: { backgroundColor: colors.background },
       })}
     >
       <Tab.Screen name="ProfHome" component={ProfessionalScreen} />
@@ -241,12 +325,13 @@ function ProfessionalTabNavigator() {
 }
 
 function SearchScreen({ navigation }) {
-  const { theme } = useContext(ThemeContext);
-  const colors = getThemeColors(theme);
+  const { colors } = useTheme();
+  const { user } = useContext(AuthContext);
   const [professionals, setProfessionals] = useState([]);
   const [filteredProfessionals, setFilteredProfessionals] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [connectingId, setConnectingId] = useState(null);
 
   const normalizeProfessional = (prof) => ({
     id: prof._id || prof.id,
@@ -274,6 +359,20 @@ function SearchScreen({ navigation }) {
       console.error('Erro ao buscar profissionais:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleConnect = async (professionalId) => {
+    if (!user) return;
+    try {
+      setConnectingId(professionalId);
+      await connectionsAPI.connect(professionalId);
+      Alert.alert('Sucesso', 'Profissional vinculado com sucesso.');
+    } catch (error) {
+      console.error('Erro ao conectar com profissional:', error);
+      Alert.alert('Erro', error.response?.data?.error || 'Não foi possível conectar com este profissional.');
+    } finally {
+      setConnectingId(null);
     }
   };
 
@@ -342,6 +441,15 @@ function SearchScreen({ navigation }) {
                   </View>
                   <Text style={[styles.profPrice, { color: colors.textTertiary }]}>{medico.price}</Text>
                 </View>
+                {user?.role === 'patient' && (
+                  <Pressable
+                    style={[styles.connectButton, { backgroundColor: colors.primary }]}
+                    onPress={() => handleConnect(medico.id)}
+                    disabled={connectingId === medico.id}
+                  >
+                    <Text style={styles.connectButtonText}>{connectingId === medico.id ? 'Conectando...' : 'Conectar'}</Text>
+                  </Pressable>
+                )}
               </View>
             </Pressable>
           )}
@@ -351,50 +459,13 @@ function SearchScreen({ navigation }) {
   );
 }
 
-function CalendarScreen() {
-  const { theme } = useContext(ThemeContext);
-  const { user } = useContext(AuthContext);
-  const colors = getThemeColors(theme);
-
-  const consultationsLeft = user?.consultationsLeft ?? 0;
-  const plan = getPlanLabel(user?.plan);
-  const appointments = user?.appointments || [];
-
-  return (
-    <ScrollView style={[styles.searchContainer, { backgroundColor: colors.background }]} contentContainerStyle={{ padding: 24 }}>
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>Agenda</Text>
-      {appointments.length > 0 ? (
-        appointments.map((item) => (
-          <View key={item.id} style={[styles.appointmentCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-            <View style={styles.appointmentHeader}>
-              <Text style={[styles.appointmentDate, { color: colors.primary }]}>{item.date}</Text>
-              <Text style={[styles.appointmentTime, { color: colors.textTertiary }]}>{item.time}</Text>
-            </View>
-            <Text style={[styles.appointmentProfessional, { color: colors.text }]}>{item.professional}</Text>
-            <Text style={[styles.appointmentSpecialty, { color: colors.textSecondary }]}>{item.specialty}</Text>
-          </View>
-        ))
-      ) : (
-        <View style={[styles.emptyStateCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-          <Text style={[styles.emptyStateTitle, { color: colors.text }]}>Nenhum agendamento encontrado</Text>
-          <Text style={[styles.emptyStateText, { color: colors.textSecondary }]}>Você tem {consultationsLeft} consultas restantes no plano {plan}. Use a busca para encontrar profissionais e agendar sua próxima consulta.</Text>
-        </View>
-      )}
-
-      <View style={[styles.calendarInfoBox, { backgroundColor: colors.cardHover, borderColor: colors.border, borderWidth: 1 }]}>
-        <Text style={[styles.calendarInfoTitle, { color: colors.text }]}>Como usar</Text>
-        <Text style={[styles.calendarInfoText, { color: colors.textSecondary }]}>Aqui você acompanha seu plano e agenda consultas com os profissionais cadastrados na plataforma.</Text>
-      </View>
-    </ScrollView>
-  );
-}
-
 function ProfileScreen({ navigation }) {
   const { user } = useContext(AuthContext);
-  const { theme } = useContext(ThemeContext);
-  const colors = getThemeColors(theme);
+  const { colors } = useTheme();
   const roleLabel = user?.role === 'professional' ? 'Profissional' : 'Paciente';
-  const planText = user?.plan ? `Plano ${getPlanLabel(user.plan)}` : 'Sem plano';
+  const showPlanCard = user?.role !== 'professional';
+  const planLabel = getPlanLabel(user?.plan);
+  const planText = planLabel ? `Plano ${planLabel}` : 'Sem plano';
   const consultationsLeft = user?.consultationsLeft ?? 0;
 
   return (
@@ -421,14 +492,16 @@ function ProfileScreen({ navigation }) {
         <Text style={styles.primaryButtonText}>Configuração</Text>
       </Pressable>
 
-      <View style={[styles.activePlanCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-        <Text style={[styles.activePlanLabel, { color: colors.textTertiary }]}>Plano ativo</Text>
-        <Text style={[styles.activePlanTitle, { color: colors.text }]}>{planText}</Text>
-        <Text style={[styles.activePlanDescription, { color: colors.textSecondary }]}>{consultationsLeft} consultas restantes</Text>
-        <Pressable style={[styles.primaryButtonLarge, { backgroundColor: colors.primary }]} onPress={() => navigation.navigate('ActivePlan')}>
-          <Text style={styles.primaryButtonText}>Ver Planos</Text>
-        </Pressable>
-      </View>
+      {showPlanCard && (
+        <View style={[styles.activePlanCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+          <Text style={[styles.activePlanLabel, { color: colors.textTertiary }]}>Plano ativo</Text>
+          <Text style={[styles.activePlanTitle, { color: colors.text }]}>{planText}</Text>
+          <Text style={[styles.activePlanDescription, { color: colors.textSecondary }]}>{consultationsLeft} consultas restantes</Text>
+          <Pressable style={[styles.primaryButtonLarge, { backgroundColor: colors.primary }]} onPress={() => navigation.navigate('ActivePlan')}>
+            <Text style={styles.primaryButtonText}>Ver Planos</Text>
+          </Pressable>
+        </View>
+      )}
 
       <Pressable style={[styles.secondaryButtonLarge, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]} onPress={() => navigation.navigate('Plans')}>
         <Text style={[styles.secondaryButtonText, { color: colors.text }]}>Ver planos disponíveis</Text>
@@ -439,9 +512,8 @@ function ProfileScreen({ navigation }) {
 
 function ConfigScreen({ navigation }) {
   const { user, logout } = useContext(AuthContext);
-  const { theme: currentTheme, setTheme, themeSelection } = useContext(ThemeContext);
+  const { colors, themeSelection, setTheme } = useTheme();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const colors = getThemeColors(currentTheme);
   const roleLabel = user?.role === 'professional' ? 'Profissional' : 'Paciente';
   const themeOptions = [
     { label: 'Padrão do sistema', value: 'Padrão do sistema' },
@@ -452,12 +524,9 @@ function ConfigScreen({ navigation }) {
   return (
     <ScrollView style={[styles.configContainer, { backgroundColor: colors.background }]} contentContainerStyle={{ padding: 24, paddingBottom: 40 }}>
       <View style={[styles.configHeader, { backgroundColor: colors.background }]}>
-        <Pressable style={[styles.configBackButton, { backgroundColor: colors.cardHover }]} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={24} color={colors.text} />
-        </Pressable>
+        <BackButton onPress={() => navigation.goBack()} />
         <Text style={[styles.configTitle, { color: colors.text }]}>Configuração</Text>
       </View>
-
       <View style={styles.configSection}>
         <Text style={[styles.configSectionTitle, { color: colors.text }]}>Conta</Text>
         <Pressable style={[styles.accountCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
@@ -504,10 +573,10 @@ function ConfigScreen({ navigation }) {
               style={[
                 styles.configItemValue,
                 { color: colors.textTertiary },
-                option.value === currentTheme && { color: colors.primary, fontWeight: '700' },
+                option.value === themeSelection && { color: colors.primary, fontWeight: '700' },
               ]}
             >
-              {option.value === currentTheme ? '✓ Selecionado' : 'Selecionar'}
+              {option.value === themeSelection ? '✓ Selecionado' : 'Selecionar'}
             </Text>
           </Pressable>
         ))}
@@ -525,228 +594,9 @@ function ConfigScreen({ navigation }) {
   );
 }
 
-function PlansScreen({ navigation }) {
-  const [cicloPagamento, setCicloPagamento] = useState('mensal');
-  const { isAuthenticated, user, updateUser } = useContext(AuthContext);
-  const { setProfData } = useContext(ProfContext);
-  const { theme } = useContext(ThemeContext);
-  const colors = getThemeColors(theme);
-  const [availableProfessionalId, setAvailableProfessionalId] = useState(null);
-
-  useEffect(() => {
-    const fetchFirstProfessional = async () => {
-      try {
-        const response = await professionalsAPI.getAll();
-        const firstProfessional = response.data?.[0];
-        if (firstProfessional) {
-          setAvailableProfessionalId(firstProfessional._id || firstProfessional.id);
-        }
-      } catch (error) {
-        console.error('Erro ao carregar profissional para assinatura:', error);
-      }
-    };
-
-    fetchFirstProfessional();
-  }, []);
-
-  const planPrices = {
-    mensal: { test: '0,01', basic: '29,90', intermediate: '49,90', premium: '79,90' },
-    bimestral: { test: '0,01', basic: '55,90', intermediate: '95,90', premium: '149,90' },
-    trimestral: { test: '0,01', basic: '79,90', intermediate: '139,90', premium: '219,90' },
-    semestral: { test: '0,01', basic: '149,90', intermediate: '259,90', premium: '399,90' },
-  };
-
-  const planDefinitions = {
-    test: { title: 'Premium', consultations: 3, price: 0.01, serverKey: 'premium' },
-    basic: { title: 'Básico', consultations: 1, price: 29.9 },
-    intermediate: { title: 'Intermediário', consultations: 2, price: 49.9 },
-    premium: { title: 'Premium', consultations: 3, price: 79.9 },
-  };
-
-  const applySubscription = async (planKey, priceValue) => {
-    const plan = planDefinitions[planKey];
-    if (!plan) {
-      Alert.alert('Plano inválido', 'Não foi possível processar o plano selecionado.');
-      return;
-    }
-
-    const serverPlanKey = plan.serverKey || planKey;
-    const durationLabel = cicloPagamento === 'mensal' ? 'Mensal' : cicloPagamento === 'bimestral' ? 'Bimestral' : cicloPagamento === 'trimestral' ? 'Trimestral' : 'Semestral';
-    const patientName = user?.name || 'Paciente';
-
-    if (availableProfessionalId) {
-      try {
-        await subscriptionsAPI.create({
-          professionalId: availableProfessionalId,
-          plan: serverPlanKey,
-          duration: durationLabel,
-          price: priceValue,
-        });
-      } catch (error) {
-        console.error('Erro ao criar assinatura no servidor:', error);
-      }
-    }
-
-    if (setProfData) {
-      setProfData((prev) =>
-        prev.map((prof, index) =>
-          index === 0
-            ? {
-              ...prof,
-              clients: [...(prof.clients || []), { name: patientName, plan: plan.title, duration: durationLabel }],
-              balance: prof.balance + priceValue,
-            }
-            : prof
-        )
-      );
-    }
-
-    if (updateUser && user) {
-      await updateUser({ ...user, plan: serverPlanKey, consultationsLeft: plan.consultations });
-    }
-
-    Alert.alert('Assinatura confirmada', `Você assinou o plano ${plan.title} por R$ ${priceValue.toFixed(2)}.`, [
-      { text: 'OK' },
-    ]);
-  };
-
-  const handleAssinarPlano = (plano) => {
-    if (!isAuthenticated) {
-      navigation.navigate('Register');
-      return;
-    }
-
-    if (plano === 'test') {
-      Alert.alert(
-        'Plano de teste',
-        'Deseja pagar R$ 0,01 para ativar o plano Premium?',
-        [
-          { text: 'Não', style: 'cancel' },
-          { text: 'Sim', onPress: () => applySubscription('test', 0.01) },
-        ]
-      );
-      return;
-    }
-
-    const price = planDefinitions[plano]?.price ?? 0;
-    applySubscription(plano, price);
-  };
-
-  const ciclos = ['mensal', 'bimestral', 'trimestral', 'semestral'];
-
-  return (
-    <View style={[styles.plansScreen, { backgroundColor: colors.background }]}>
-      <View style={[styles.plansHeader, { backgroundColor: colors.containerBg, borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
-        <Pressable style={[styles.plansBackButton, { backgroundColor: colors.cardHover }]} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={24} color={colors.text} />
-        </Pressable>
-        <Text style={[styles.plansTitle, { color: colors.text }]}>Assinaturas</Text>
-      </View>
-
-      <View style={styles.plansContent}>
-        <View style={styles.cycleSelector}>
-          {ciclos.map((ciclo) => (
-            <Pressable
-              key={ciclo}
-              onPress={() => setCicloPagamento(ciclo)}
-              style={[
-                styles.cycleButton,
-                { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 },
-                cicloPagamento === ciclo && { backgroundColor: colors.primary, borderColor: colors.primary },
-              ]}
-            >
-              <Text style={[
-                styles.cycleButtonText,
-                { color: colors.text },
-                cicloPagamento === ciclo && { color: '#ffffff', fontWeight: '700' }
-              ]}>
-                {ciclo}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <ScrollView contentContainerStyle={styles.plansList}>
-          <View style={[styles.planCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-            <Text style={[styles.planName, { color: colors.text }]}>Teste</Text>
-            <View style={styles.planPriceRow}>
-              <Text style={[styles.planPrice, { color: colors.text }]}>R$ {planPrices[cicloPagamento].test}</Text>
-              <Text style={[styles.planCycle, { color: colors.textSecondary }]}>/{cicloPagamento === 'mensal' ? 'mês' : cicloPagamento}</Text>
-            </View>
-            <View style={styles.planFeatures}>
-              <Text style={[styles.planFeature, { color: colors.text }]}><Ionicons name="checkmark-circle" size={16} color={colors.primary} /> Teste por R$ 0,01</Text>
-              <Text style={[styles.planFeature, { color: colors.text }]}><Ionicons name="checkmark-circle" size={16} color={colors.primary} /> Upgrade para Premium ao confirmar</Text>
-              <Text style={[styles.planFeatureDisabled, { color: colors.textTertiary }]}><Ionicons name="checkmark-circle" size={16} color={colors.textTertiary} /> Suporte via Chat</Text>
-              <Text style={[styles.planFeatureDisabled, { color: colors.textTertiary }]}><Ionicons name="checkmark-circle" size={16} color={colors.textTertiary} /> Psicólogo</Text>
-            </View>
-            <Pressable style={[styles.planButton, { backgroundColor: colors.primary }]} onPress={() => handleAssinarPlano('test')}>
-              <Text style={styles.planButtonText}>Assinar Teste</Text>
-            </Pressable>
-          </View>
-
-          <View style={[styles.planCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-            <Text style={[styles.planName, { color: colors.text }]}>Básico</Text>
-            <View style={styles.planPriceRow}>
-              <Text style={[styles.planPrice, { color: colors.text }]}>R$ {planPrices[cicloPagamento].basic}</Text>
-              <Text style={[styles.planCycle, { color: colors.textSecondary }]}>/{cicloPagamento === 'mensal' ? 'mês' : cicloPagamento}</Text>
-            </View>
-            <View style={styles.planFeatures}>
-              <Text style={[styles.planFeature, { color: colors.text }]}><Ionicons name="checkmark-circle" size={16} color={colors.primary} /> 1 Consulta/mês (Nutri ou Ed. Físico)</Text>
-              <Text style={[styles.planFeature, { color: colors.text }]}><Ionicons name="checkmark-circle" size={16} color={colors.primary} /> Plano Alimentar ou Treino</Text>
-              <Text style={[styles.planFeatureDisabled, { color: colors.textTertiary }]}><Ionicons name="checkmark-circle" size={16} color={colors.textTertiary} /> Suporte via Chat</Text>
-              <Text style={[styles.planFeatureDisabled, { color: colors.textTertiary }]}><Ionicons name="checkmark-circle" size={16} color={colors.textTertiary} /> Psicólogo</Text>
-            </View>
-            <Pressable style={[styles.planButton, { backgroundColor: colors.primary }]} onPress={() => handleAssinarPlano('basic')}>
-              <Text style={styles.planButtonText}>Assinar Básico</Text>
-            </Pressable>
-          </View>
-
-          <View style={[styles.planCardFeatured, { backgroundColor: colors.card, borderColor: colors.primary, borderWidth: 2 }]}>
-            <View style={[styles.featuredBadge, { backgroundColor: colors.primary }]}>
-              <Text style={styles.featuredBadgeText}>Mais Popular</Text>
-            </View>
-            <Text style={[styles.planName, styles.planNameWhite]}>Intermediário</Text>
-            <View style={styles.planPriceRow}>
-              <Text style={[styles.planPrice, styles.planPriceWhite]}>R$ {planPrices[cicloPagamento].intermediate}</Text>
-              <Text style={styles.planCycleLight}>/{cicloPagamento === 'mensal' ? 'mês' : cicloPagamento}</Text>
-            </View>
-            <View style={styles.planFeatures}>
-              <Text style={styles.planFeatureWhite}><Ionicons name="checkmark-circle" size={16} color="#fbbf24" /> 2 Consultas/mês (Nutri e Ed. Físico)</Text>
-              <Text style={styles.planFeatureWhite}><Ionicons name="checkmark-circle" size={16} color="#fbbf24" /> Plano Alimentar e Treino</Text>
-              <Text style={styles.planFeatureWhite}><Ionicons name="checkmark-circle" size={16} color="#fbbf24" /> Suporte via Chat (Dúvidas)</Text>
-              <Text style={styles.planFeatureLight}><Ionicons name="checkmark-circle" size={16} color="#fbbf24" /> Psicólogo</Text>
-            </View>
-            <Pressable style={[styles.planButton, styles.planButtonWhite]} onPress={() => handleAssinarPlano('intermediate')}>
-              <Text style={styles.planButtonTextWhite}>Assinar Intermediário</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.planCardPremium}>
-            <Text style={[styles.planName, styles.planNamePremium]}><Ionicons name="star" size={18} color="#fbbf24" /> Premium</Text>
-            <View style={styles.planPriceRow}>
-              <Text style={[styles.planPrice, styles.planPriceWhite]}>R$ {planPrices[cicloPagamento].premium}</Text>
-              <Text style={styles.planCycleLight}>/{cicloPagamento === 'mensal' ? 'mês' : cicloPagamento}</Text>
-            </View>
-            <View style={styles.planFeatures}>
-              <Text style={styles.planFeatureWhite}><Ionicons name="checkmark-circle" size={16} color="#fbbf24" /> 3 Consultas/mês (Inclusos os 3)</Text>
-              <Text style={styles.planFeatureWhite}><Ionicons name="checkmark-circle" size={16} color="#fbbf24" /> Acompanhamento Psicológico</Text>
-              <Text style={styles.planFeatureWhite}><Ionicons name="checkmark-circle" size={16} color="#fbbf24" /> Chat Liberado Ilimitado</Text>
-              <Text style={styles.planFeatureWhite}><Ionicons name="checkmark-circle" size={16} color="#fbbf24" /> Prioridade no Atendimento</Text>
-            </View>
-            <Pressable style={[styles.planButton, styles.planButtonPremium]} onPress={() => handleAssinarPlano('premium')}>
-              <Text style={styles.planButtonTextPremium}>Assinar Premium</Text>
-            </Pressable>
-          </View>
-        </ScrollView>
-      </View>
-    </View>
-  );
-}
-
 function ProfessionalProfileScreen({ route, navigation }) {
   const { medico } = route.params;
-  const { theme } = useContext(ThemeContext);
-  const colors = getThemeColors(theme);
+  const { colors } = useTheme();
 
   const name = medico.name || medico.nome || 'Profissional';
   const specialty = medico.specialty || medico.especialidade || 'Especialidade não informada';
@@ -758,9 +608,7 @@ function ProfessionalProfileScreen({ route, navigation }) {
   return (
     <View style={[styles.profProfileContainer, { backgroundColor: colors.background }]}>
       <View style={[styles.profProfileHeader, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-        <Pressable style={styles.profProfileBackButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={24} color={colors.text} />
-        </Pressable>
+        <BackButton style={styles.profProfileBackButton} onPress={() => navigation.goBack()} />
         <Image source={{ uri: image }} style={styles.profProfileImage} />
         <View style={styles.profProfileOverlay} />
         <View style={styles.profProfileTextContainer}>
@@ -827,18 +675,6 @@ function ProfessionalProfileScreen({ route, navigation }) {
   );
 }
 
-function ThemeProvider({ children }) {
-  const [themeSelection, setThemeSelection] = useState('Padrão do sistema');
-  const systemColorScheme = useColorScheme();
-  const currentTheme = getThemeMode(themeSelection, systemColorScheme);
-
-  return (
-    <ThemeContext.Provider value={{ theme: currentTheme, setTheme: setThemeSelection, themeSelection }}>
-      {children}
-    </ThemeContext.Provider>
-  );
-}
-
 export default function App() {
   const [profData, setProfData] = useState([
     { name: 'Dra. Ana Souza', specialty: 'Nutricionista', clients: [], balance: 0 },
@@ -863,6 +699,8 @@ export default function App() {
 function AuthNavigator({ updateProfData }) {
   const { isAuthenticated, isLoading, user } = useContext(AuthContext);
 
+  console.log('AuthNavigator render - isAuthenticated:', isAuthenticated, 'isLoading:', isLoading, 'user:', !!user);
+
   if (isLoading) {
     // Tela de carregamento enquanto verifica autenticação
     return (
@@ -879,14 +717,16 @@ function AuthNavigator({ updateProfData }) {
         <>
           <Stack.Screen
             name="Main"
-            component={user?.role === 'professional' ? ProfessionalTabNavigator : PatientTabNavigator}
+            component={user?.role === 'professional' ? ProfessionalStackNavigator : PatientStackNavigator}
             options={{ headerShown: false }}
           />
-          <Stack.Screen name="Config" component={ConfigScreen} />
+          <Stack.Screen name="Config" component={ConfigScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Chat" component={ChatScreen} />
           <Stack.Screen name="Video" component={VideoScreen} />
           <Stack.Screen name="ActivePlan" component={ActivePlanScreen} options={{ headerShown: false }} />
           <Stack.Screen name="ProfessionalProfile" component={ProfessionalProfileScreen} />
+          <Stack.Screen name="Reports" component={ProfessionalReportsScreen} />
+          <Stack.Screen name="Records" component={ProfessionalRecordsScreen} />
           <Stack.Screen name="Plans" component={PlansScreen} options={{ headerShown: false }} />
         </>
       ) : (
@@ -1145,6 +985,32 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     lineHeight: 20,
   },
+  planAlertCard: {
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 16,
+  },
+  planAlertTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  planAlertText: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  planAlertButton: {
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  planAlertButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   primaryButtonLarge: {
     backgroundColor: '#2563eb',
     borderRadius: 16,
@@ -1192,10 +1058,9 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   configBackButton: {
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 14,
@@ -1399,6 +1264,53 @@ const styles = StyleSheet.create({
     borderColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  connectedProfessionalCard: {
+    marginHorizontal: 24,
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 18,
+  },
+  connectedProfessionalHeader: {
+    marginBottom: 14,
+  },
+  connectedProfessionalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  connectedProfessionalSubtitle: {
+    fontSize: 13,
+    color: '#6b7280',
+  },
+  connectedProfessionalInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  connectedProfessionalAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  connectedProfessionalDetails: {
+    flex: 1,
+  },
+  connectedProfessionalName: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  connectedProfessionalSpecialty: {
+    fontSize: 14,
+    marginBottom: 2,
+    color: '#6b7280',
+  },
+  connectedProfessionalClients: {
+    fontSize: 12,
+    color: '#6b7280',
   },
   consultasCard: {
     backgroundColor: '#ffffff',
@@ -1698,6 +1610,18 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#2563eb',
   },
+  connectButton: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  connectButtonText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
   searchEmptyState: {
     flex: 1,
     justifyContent: 'center',
@@ -1757,10 +1681,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 40,
     left: 16,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: 'rgba(255,255,255,0.9)',
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
@@ -1925,193 +1848,5 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '700',
     fontSize: 14,
-  },
-  plansScreen: {
-    flex: 1,
-    backgroundColor: '#f3f4f6',
-  },
-  plansHeader: {
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  plansBackButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f8fafc',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  plansTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1f2937',
-  },
-  plansContent: {
-    flex: 1,
-    padding: 20,
-  },
-  cycleSelector: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  cycleButton: {
-    flex: 1,
-    minWidth: 75,
-    paddingVertical: 10,
-    borderRadius: 14,
-    backgroundColor: '#ffffff',
-    marginHorizontal: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-  },
-  cycleButtonActive: {
-    backgroundColor: '#ffffff',
-    borderColor: '#2563eb',
-  },
-  cycleButtonText: {
-    fontSize: 13,
-    color: '#6b7280',
-    textTransform: 'capitalize',
-  },
-  cycleButtonTextActive: {
-    color: '#2563eb',
-    fontWeight: '700',
-  },
-  plansList: {
-    paddingBottom: 30,
-  },
-  planCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  planCardFeatured: {
-    backgroundColor: '#2563eb',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#1d4ed8',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  planCardPremium: {
-    backgroundColor: '#111827',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#374151',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  planName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0f172a',
-    marginBottom: 10,
-  },
-  planNameWhite: {
-    color: '#ffffff',
-  },
-  planNamePremium: {
-    color: '#fbbf24',
-  },
-  planPriceRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-    marginBottom: 14,
-  },
-  planPrice: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#2563eb',
-  },
-  planPriceWhite: {
-    color: '#ffffff',
-  },
-  planCycle: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  planCycleLight: {
-    fontSize: 14,
-    color: '#bfdbfe',
-  },
-  planFeatures: {
-    marginBottom: 18,
-  },
-  planFeature: {
-    fontSize: 14,
-    color: '#374151',
-    marginBottom: 10,
-  },
-  planFeatureDisabled: {
-    fontSize: 14,
-    color: '#94a3b8',
-    marginBottom: 10,
-  },
-  planFeatureWhite: {
-    fontSize: 14,
-    color: '#dbeafe',
-    marginBottom: 10,
-  },
-  planButton: {
-    width: '100%',
-    borderRadius: 16,
-    paddingVertical: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#eff6ff',
-  },
-  planButtonWhite: {
-    backgroundColor: '#ffffff',
-  },
-  planButtonPremium: {
-    backgroundColor: '#fbbf24',
-  },
-  planButtonText: {
-    color: '#2563eb',
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  planButtonTextWhite: {
-    color: '#2563eb',
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  planButtonTextPremium: {
-    color: '#111827',
-    fontWeight: '700',
-    fontSize: 15,
   },
 });

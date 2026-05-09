@@ -1,7 +1,9 @@
-import React, { useContext } from 'react';
-import { ScrollView, StyleSheet, Text, View, Pressable, useColorScheme } from 'react-native';
+import React, { useContext, useState, useEffect } from 'react';
+import { ScrollView, StyleSheet, Text, View, Pressable, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from './src/context/AuthContext';
+import { useTheme } from './src/context/ThemeContext';
+import { professionalsAPI } from './api';
 
 function getGreeting() {
     const hour = new Date().getHours();
@@ -11,32 +13,44 @@ function getGreeting() {
 }
 
 export default function ProfessionalScreen({ navigation }) {
+    const parentNavigation = navigation.getParent?.() || navigation;
     const { user } = useContext(AuthContext);
-    const systemColorScheme = useColorScheme();
-    const isDark = systemColorScheme === 'dark';
-
-    const colors = {
-        background: isDark ? '#050f1c' : '#f3f4f6',
-        containerBg: isDark ? '#0f172a' : '#ffffff',
-        text: isDark ? '#f1f5f9' : '#0f172a',
-        textSecondary: isDark ? '#cbd5e1' : '#475569',
-        textTertiary: isDark ? '#94a3b8' : '#94a3b8',
-        border: isDark ? '#1e293b' : '#e2e8f0',
-        primary: '#2563eb',
-        primaryLight: '#3b82f6',
-        card: isDark ? '#1e293b' : '#ffffff',
-        cardHover: isDark ? '#334155' : '#f9fafb',
-        success: '#10b981',
-        warning: '#f59e0b',
-    };
+    const { colors } = useTheme();
+    const [patients, setPatients] = useState([]);
+    const [loading, setLoading] = useState(true);
 
     const professionalName = user?.name || 'Profissional';
     const greeting = getGreeting();
-    const patients = [
-        { id: 1, name: 'João Silva', time: '09:00', status: 'Confirmado' },
-        { id: 2, name: 'Maria Santos', time: '10:30', status: 'Confirmado' },
-        { id: 3, name: 'Pedro Oliveira', time: '14:00', status: 'Pendente' },
-    ];
+
+    useEffect(() => {
+        const fetchPatients = async () => {
+            try {
+                setLoading(true);
+                let response;
+                if (user?.professionalId) {
+                    response = await professionalsAPI.getPatients(user.professionalId);
+                } else {
+                    response = await professionalsAPI.getPatientsAll();
+                }
+                const normalizedPatients = (response.data || []).map((patient) => ({
+                    id: patient._id,
+                    name: patient.name || 'Paciente',
+                    time: '09:00',
+                    status: 'Confirmado',
+                    email: patient.email,
+                    cpf: patient.cpf,
+                }));
+                setPatients(normalizedPatients);
+            } catch (error) {
+                console.error('Erro ao buscar pacientes:', error);
+                setPatients([]);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchPatients();
+    }, [user]);
 
     return (
         <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={{ paddingBottom: 100 }}>
@@ -52,119 +66,134 @@ export default function ProfessionalScreen({ navigation }) {
                 </View>
             </View>
 
-            {/* Resumo do Dia */}
-            <View style={[styles.summaryCard, { backgroundColor: colors.primary }]}>
-                <View style={styles.summaryItem}>
-                    <View style={[styles.summaryIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                        <Ionicons name="videocam" size={24} color="white" />
-                    </View>
-                    <View>
-                        <Text style={styles.summaryLabel}>Consultas Hoje</Text>
-                        <Text style={styles.summaryValue}>3</Text>
-                    </View>
+            {loading ? (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 100 }}>
+                    <ActivityIndicator size="large" color={colors.primary} />
                 </View>
-                <View style={styles.divider} />
-                <View style={styles.summaryItem}>
-                    <View style={[styles.summaryIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                        <Ionicons name="people" size={24} color="white" />
-                    </View>
-                    <View>
-                        <Text style={styles.summaryLabel}>Pacientes Ativos</Text>
-                        <Text style={styles.summaryValue}>12</Text>
-                    </View>
-                </View>
-                <View style={styles.divider} />
-                <View style={styles.summaryItem}>
-                    <View style={[styles.summaryIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                        <Ionicons name="chatbubble" size={24} color="white" />
-                    </View>
-                    <View>
-                        <Text style={styles.summaryLabel}>Mensagens</Text>
-                        <Text style={styles.summaryValue}>5</Text>
-                    </View>
-                </View>
-            </View>
-
-            {/* Ações Rápidas */}
-            <View style={styles.actionsSection}>
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Ações Rápidas</Text>
-                <View style={styles.actionGrid}>
-                    <Pressable
-                        style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
-                        onPress={() => navigation.navigate('Video')}
-                    >
-                        <View style={[styles.actionIcon, { backgroundColor: `${colors.primary}20` }]}>
-                            <Ionicons name="videocam" size={24} color={colors.primary} />
+            ) : (
+                <>
+                    {/* Resumo do Dia */}
+                    <View style={[styles.summaryCard, { backgroundColor: colors.primary }]}>
+                        <View style={styles.summaryItem}>
+                            <View style={[styles.summaryIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                                <Ionicons name="videocam" size={24} color="white" />
+                            </View>
+                            <View>
+                                <Text style={styles.summaryLabel}>Consultas Hoje</Text>
+                                <Text style={styles.summaryValue}>{patients.length}</Text>
+                            </View>
                         </View>
-                        <Text style={[styles.actionTitle, { color: colors.text }]}>Iniciar Vídeo</Text>
-                        <Text style={[styles.actionSubtitle, { color: colors.textSecondary }]}>Consulta agora</Text>
-                    </Pressable>
-
-                    <Pressable
-                        style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
-                        onPress={() => navigation.navigate('ProfAgenda')}
-                    >
-                        <View style={[styles.actionIcon, { backgroundColor: `${colors.success}20` }]}>
-                            <Ionicons name="calendar" size={24} color={colors.success} />
+                        <View style={styles.divider} />
+                        <View style={styles.summaryItem}>
+                            <View style={[styles.summaryIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                                <Ionicons name="people" size={24} color="white" />
+                            </View>
+                            <View>
+                                <Text style={styles.summaryLabel}>Pacientes Ativos</Text>
+                                <Text style={styles.summaryValue}>{patients.length}</Text>
+                            </View>
                         </View>
-                        <Text style={[styles.actionTitle, { color: colors.text }]}>Agenda</Text>
-                        <Text style={[styles.actionSubtitle, { color: colors.textSecondary }]}>Ver horários</Text>
-                    </Pressable>
-
-                    <Pressable style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-                        <View style={[styles.actionIcon, { backgroundColor: `${colors.warning}20` }]}>
-                            <Ionicons name="clipboard" size={24} color={colors.warning} />
-                        </View>
-                        <Text style={[styles.actionTitle, { color: colors.text }]}>Relatórios</Text>
-                        <Text style={[styles.actionSubtitle, { color: colors.textSecondary }]}>Ver desempenho</Text>
-                    </Pressable>
-
-                    <Pressable style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-                        <View style={[styles.actionIcon, { backgroundColor: `${colors.primary}20` }]}>
-                            <Ionicons name="document" size={24} color={colors.primary} />
-                        </View>
-                        <Text style={[styles.actionTitle, { color: colors.text }]}>Prontuários</Text>
-                        <Text style={[styles.actionSubtitle, { color: colors.textSecondary }]}>Pacientes</Text>
-                    </Pressable>
-                </View>
-            </View>
-
-            {/* Próximas Consultas */}
-            <View style={styles.appointmentsSection}>
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Próximas Consultas</Text>
-                {patients.map((patient) => (
-                    <View key={patient.id} style={[styles.appointmentCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-                        <View style={[styles.appointmentIcon, { backgroundColor: colors.cardHover }]}>
-                            <Ionicons name="person-circle" size={32} color={colors.primary} />
-                        </View>
-                        <Pressable style={styles.appointmentContent} onPress={() => navigation.navigate('Video', { patient })}>
-                            <Text style={[styles.appointmentName, { color: colors.text }]}>{patient.name}</Text>
-                            <Text style={[styles.appointmentTime, { color: colors.textTertiary }]}>
-                                <Ionicons name="time-outline" size={12} /> {patient.time}
-                            </Text>
-                        </Pressable>
-                        <View style={{ flexDirection: 'column', alignItems: 'flex-end' }}>
-                            <Pressable
-                                style={[styles.smallAction, { backgroundColor: colors.primary }]}
-                                onPress={() => navigation.navigate('Video', { patient })}
-                            >
-                                <Ionicons name="videocam" size={16} color="white" />
-                            </Pressable>
-                            <Pressable
-                                style={[styles.smallAction, { backgroundColor: colors.cardHover, marginTop: 8 }]}
-                                onPress={() => navigation.navigate('ProfChat', { patient })}
-                            >
-                                <Ionicons name="chatbubble" size={16} color={colors.primary} />
-                            </Pressable>
-                            <View style={[styles.statusBadge, { backgroundColor: patient.status === 'Confirmado' ? `${colors.success}20` : `${colors.warning}20`, marginTop: 8 }]}>
-                                <Text style={[styles.statusText, { color: patient.status === 'Confirmado' ? colors.success : colors.warning }]}>
-                                    {patient.status}
-                                </Text>
+                        <View style={styles.divider} />
+                        <View style={styles.summaryItem}>
+                            <View style={[styles.summaryIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                                <Ionicons name="chatbubble" size={24} color="white" />
+                            </View>
+                            <View>
+                                <Text style={styles.summaryLabel}>Mensagens</Text>
+                                <Text style={styles.summaryValue}>{patients.length > 0 ? Math.floor(patients.length / 2) : 0}</Text>
                             </View>
                         </View>
                     </View>
-                ))}
-            </View>
+
+                    {/* Ações Rápidas */}
+                    <View style={styles.actionsSection}>
+                        <Text style={[styles.sectionTitle, { color: colors.text }]}>Ações Rápidas</Text>
+                        <View style={styles.actionGrid}>
+                            <Pressable
+                                style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+                                onPress={() => parentNavigation.navigate('Video')}
+                            >
+                                <View style={[styles.actionIcon, { backgroundColor: `${colors.primary}20` }]}>
+                                    <Ionicons name="videocam" size={24} color={colors.primary} />
+                                </View>
+                                <Text style={[styles.actionTitle, { color: colors.text }]}>Iniciar Vídeo</Text>
+                                <Text style={[styles.actionSubtitle, { color: colors.textSecondary }]}>Consulta agora</Text>
+                            </Pressable>
+
+                            <Pressable
+                                style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+                                onPress={() => parentNavigation.navigate('ProfAgenda')}
+                            >
+                                <View style={[styles.actionIcon, { backgroundColor: `${colors.success}20` }]}>
+                                    <Ionicons name="calendar" size={24} color={colors.success} />
+                                </View>
+                                <Text style={[styles.actionTitle, { color: colors.text }]}>Agenda</Text>
+                                <Text style={[styles.actionSubtitle, { color: colors.textSecondary }]}>Ver horários</Text>
+                            </Pressable>
+
+                            <Pressable
+                                style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+                                onPress={() => parentNavigation.navigate('Reports')}
+                            >
+                                <View style={[styles.actionIcon, { backgroundColor: `${colors.warning}20` }]}>
+                                    <Ionicons name="clipboard" size={24} color={colors.warning} />
+                                </View>
+                                <Text style={[styles.actionTitle, { color: colors.text }]}>Relatórios</Text>
+                                <Text style={[styles.actionSubtitle, { color: colors.textSecondary }]}>Ver desempenho</Text>
+                            </Pressable>
+
+                            <Pressable
+                                style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+                                onPress={() => parentNavigation.navigate('Records')}
+                            >
+                                <View style={[styles.actionIcon, { backgroundColor: `${colors.primary}20` }]}
+                                >
+                                    <Ionicons name="document" size={24} color={colors.primary} />
+                                </View>
+                                <Text style={[styles.actionTitle, { color: colors.text }]}>Prontuários</Text>
+                                <Text style={[styles.actionSubtitle, { color: colors.textSecondary }]}>Pacientes</Text>
+                            </Pressable>
+                        </View>
+                    </View>
+
+                    {/* Próximas Consultas */}
+                    <View style={styles.appointmentsSection}>
+                        <Text style={[styles.sectionTitle, { color: colors.text }]}>Próximas Consultas</Text>
+                        {patients.map((patient) => (
+                            <View key={patient.id} style={[styles.appointmentCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+                                <View style={[styles.appointmentIcon, { backgroundColor: colors.cardHover }]}>
+                                    <Ionicons name="person-circle" size={32} color={colors.primary} />
+                                </View>
+                                <Pressable style={styles.appointmentContent} onPress={() => navigation.navigate('Video', { patient })}>
+                                    <Text style={[styles.appointmentName, { color: colors.text }]}>{patient.name}</Text>
+                                    <Text style={[styles.appointmentTime, { color: colors.textTertiary }]}>
+                                        <Ionicons name="time-outline" size={12} /> {patient.time}
+                                    </Text>
+                                </Pressable>
+                                <View style={{ flexDirection: 'column', alignItems: 'flex-end' }}>
+                                    <Pressable
+                                        style={[styles.smallAction, { backgroundColor: colors.primary }]}
+                                        onPress={() => navigation.navigate('Video', { patient })}
+                                    >
+                                        <Ionicons name="videocam" size={16} color="white" />
+                                    </Pressable>
+                                    <Pressable
+                                        style={[styles.smallAction, { backgroundColor: colors.cardHover, marginTop: 8 }]}
+                                        onPress={() => navigation.navigate('ProfChat', { patient })}
+                                    >
+                                        <Ionicons name="chatbubble" size={16} color={colors.primary} />
+                                    </Pressable>
+                                    <View style={[styles.statusBadge, { backgroundColor: patient.status === 'Confirmado' ? `${colors.success}20` : `${colors.warning}20`, marginTop: 8 }]}>
+                                        <Text style={[styles.statusText, { color: patient.status === 'Confirmado' ? colors.success : colors.warning }]}>
+                                            {patient.status}
+                                        </Text>
+                                    </View>
+                                </View>
+                            </View>
+                        ))}
+                    </View>
+                </>
+            )}
         </ScrollView>
     );
 }

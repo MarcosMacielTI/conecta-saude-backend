@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const https = require('https');
 const User = require('../models/User');
+const Professional = require('../models/Professional');
 
 const router = express.Router();
 
@@ -13,10 +14,15 @@ const generateToken = (user) => {
 
 // Register - return token + user
 router.post('/register', async (req, res) => {
-    const { name, email, password, role, cpf } = req.body;
+    const { name, email, password, role, cpf, specialty } = req.body;
     try {
-        const existing = await User.findOne({ email });
-        if (existing) return res.status(409).json({ error: 'Email already in use' });
+        const existingEmail = await User.findOne({ email });
+        if (existingEmail) return res.status(409).json({ error: 'Email already in use' });
+
+        if (cpf) {
+            const existingCPF = await User.findOne({ cpf });
+            if (existingCPF) return res.status(409).json({ error: 'CPF já cadastrado' });
+        }
 
         let hashedPassword = null;
         if (password) hashedPassword = await bcrypt.hash(password, 10);
@@ -24,8 +30,41 @@ router.post('/register', async (req, res) => {
         const user = new User({ name, email, password: hashedPassword, role, cpf });
         await user.save();
 
+        // If registering as professional, create Professional document
+        if (role === 'professional') {
+            const professional = new Professional({
+                name,
+                email,
+                specialty: specialty || 'Especialista',
+                rating: 5,
+                price: 'Premium',
+                image: 'https://i.pravatar.cc/150?img=12',
+                availability: 'Disponível',
+                clients: [],
+                balance: 0,
+            });
+            await professional.save();
+            user.professionalId = professional._id;
+            await user.save();
+        } else if (role === 'patient') {
+            // Do not auto-associate patients on registration. Patient will connect manually.
+        }
+
         const token = generateToken(user);
-        res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+        res.status(201).json({
+            token,
+            user: {
+                _id: user._id,
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                cpf: user.cpf,
+                professionalId: user.professionalId,
+                plan: user.plan,
+                consultationsLeft: user.consultationsLeft
+            }
+        });
     } catch (err) {
         res.status(400).json({ error: err.message });
     }
@@ -46,8 +85,23 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ error: 'Use Google login for this account' });
         }
 
+        // Do not auto-link patients on login. Connections are created explicitly on subscription or connect flow.
+
         const token = generateToken(user);
-        res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+        res.json({
+            token,
+            user: {
+                _id: user._id,
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                cpf: user.cpf,
+                professionalId: user.professionalId,
+                plan: user.plan,
+                consultationsLeft: user.consultationsLeft
+            }
+        });
     } catch (err) {
         res.status(400).json({ error: err.message });
     }
@@ -77,16 +131,36 @@ router.post('/google/mobile', async (req, res) => {
                 const googleId = payload.sub;
 
                 let user = await User.findOne({ email });
+                const isNewUser = !user;
+
                 if (!user) {
-                    user = new User({ name, email, googleId });
+                    user = new User({ name, email, googleId, role: 'patient' });
                     await user.save();
                 } else if (!user.googleId) {
                     user.googleId = googleId;
                     await user.save();
                 }
 
+                // Do not auto-link patients on Google login. Connections should be explicit or created via a subscription.
+                if (user.role === 'patient') {
+                    // preserve existing professionalId if already associated
+                }
+
                 const token = generateToken(user);
-                return res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+                return res.json({
+                    token,
+                    user: {
+                        _id: user._id,
+                        id: user._id,
+                        name: user.name,
+                        email: user.email,
+                        role: user.role,
+                        cpf: user.cpf,
+                        professionalId: user.professionalId,
+                        plan: user.plan,
+                        consultationsLeft: user.consultationsLeft
+                    }
+                });
             } catch (e) {
                 return res.status(400).json({ error: 'Invalid token payload' });
             }

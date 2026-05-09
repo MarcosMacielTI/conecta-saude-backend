@@ -2,13 +2,20 @@ import React from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
 
 export default function ProfessionalProfileScreen({ route }) {
-  const medico = route.params?.medico || { nome: 'Dra. Ana', especialidade: 'Psicologia', imagem: 'https://i.pravatar.cc/150?img=5' };
+  const medico = route.params?.medico || {
+    name: 'Dra. Ana',
+    specialty: 'Psicologia',
+    image: 'https://i.pravatar.cc/150?img=5',
+  };
+  const name = medico.name || medico.nome || 'Profissional';
+  const specialty = medico.specialty || medico.especialidade || 'Especialidade não informada';
+  const image = medico.image || medico.imagem || 'https://i.pravatar.cc/150?img=5';
 
   return (
     <View style={styles.container}>
-      <Image source={{ uri: medico.imagem }} style={styles.avatar} />
-      <Text style={styles.name}>{medico.nome}</Text>
-      <Text style={styles.specialty}>{medico.especialidade}</Text>
+      <Image source={{ uri: image }} style={styles.avatar} />
+      <Text style={styles.name}>{name}</Text>
+      <Text style={styles.specialty}>{specialty}</Text>
       <Text style={styles.description}>Perfil do profissional e serviços oferecidos.</Text>
     </View>
   );

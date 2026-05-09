@@ -1,15 +1,12 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
-const getAppHost = () => {
-    if (Platform.OS === 'android') {
-        return '10.0.2.2';
-    }
-    return '192.168.0.86';
-};
-
-const API_BASE_URL = `http://${getAppHost()}:3000/api`; // Backend local URL
+const expoExtra = Constants?.expoConfig?.extra || Constants?.manifest?.extra || {};
+// ⚠️ IP LOCAL: 10.0.0.172 (obtido via ipconfig)
+const apiUrl = expoExtra?.API_URL || process.env.API_URL || 'http://10.0.0.172:3000';
+const BASE_URL = apiUrl.replace(/\/+$/, '');
+const API_BASE_URL = `${BASE_URL}/api`;
 
 const api = axios.create({
     baseURL: API_BASE_URL,
@@ -42,16 +39,34 @@ export const authAPI = {
 
 export const professionalsAPI = {
     getAll: () => api.get('/professionals'),
+    getProfessional: () => api.get('/professionals/professional'),
+    getPatientsAll: () => api.get('/professionals/patients'),
     getById: (id) => api.get(`/professionals/${id}`),
+    getPatients: (id) => api.get(`/professionals/${id}/patients`),
+    search: (q) => api.get('/professionals/search', { params: { q } }),
 };
 
 export const usersAPI = {
     getAll: (role) => api.get('/users', { params: { role } }),
 };
 
-export const subscriptionsAPI = {
-    create: (data) => api.post('/subscriptions', data),
-    getUserSubscriptions: () => api.get('/subscriptions'),
+export const connectionsAPI = {
+    connect: (professionalId) => api.post('/connect', { professionalId }),
+    getProfessionalForPatient: (patientId) => api.get(`/patient/${patientId}/professional`),
+    getPatientsForProfessional: (professionalId) => api.get(`/professional/${professionalId}/patients`),
+    searchPatients: (q, professionalId) => api.get('/patients/search', { params: { q, professionalId } }),
+    getConnections: () => api.get('/connections'),
 };
 
-export default api;
+export const messagesAPI = {
+    sendMessage: (content, connectionId) => api.post('/messages', { content, connectionId }),
+    getMessages: (connectionId) => api.get(`/messages/${connectionId}`),
+    getConversation: () => api.get('/conversation'),
+};
+
+export const subscriptionsAPI = {
+    create: (data) => api.post('/subscriptions', data),
+    getActive: () => api.get('/subscriptions/active'),
+    updatePlan: (id, plan) => api.put(`/subscriptions/${id}`, { plan }),
+    cancel: (id) => api.delete(`/subscriptions/${id}`),
+};

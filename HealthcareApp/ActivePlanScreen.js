@@ -1,32 +1,36 @@
 import React, { useState, useContext } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, useColorScheme, Modal, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from './src/context/AuthContext';
+import { useTheme } from './src/context/ThemeContext';
+import BackButton from './src/components/BackButton';
+
+function normalizePlan(plan) {
+    if (!plan) return null;
+    const value = String(plan).trim().toLowerCase();
+    if (value === 'sem plano' || value === 'semplano' || value === 'none' || value === 'no plan') return null;
+    return value;
+}
+
+function getPlanLabel(plan) {
+    const normalized = normalizePlan(plan);
+    if (!normalized) return null;
+    if (normalized.includes('prem')) return 'Premium';
+    if (normalized.includes('inter')) return 'Intermediário';
+    if (normalized.includes('bas')) return 'Básico';
+    return plan;
+}
 
 export default function ActivePlanScreen({ navigation }) {
     const { user } = useContext(AuthContext);
-    const systemColorScheme = useColorScheme();
-    const isDark = systemColorScheme === 'dark';
-
-    const colors = {
-        background: isDark ? '#050f1c' : '#f3f4f6',
-        containerBg: isDark ? '#0f172a' : '#ffffff',
-        text: isDark ? '#f1f5f9' : '#0f172a',
-        textSecondary: isDark ? '#cbd5e1' : '#475569',
-        textTertiary: isDark ? '#94a3b8' : '#94a3b8',
-        border: isDark ? '#1e293b' : '#e2e8f0',
-        primary: '#3b82f6',
-        card: isDark ? '#1e293b' : '#ffffff',
-        success: '#10b981',
-        error: '#ef4444',
-        warning: '#f59e0b',
-    };
+    const { colors } = useTheme();
 
     const [showContinueModal, setShowContinueModal] = useState(false);
     const [showPlanDetails, setShowPlanDetails] = useState(false);
     const [continueNextMonth, setContinueNextMonth] = useState(false);
 
-    const userPlan = user?.plan || 'Básico';
+    const userPlan = getPlanLabel(user?.plan);
+    const hasActivePlan = !!userPlan;
     const subscriptionDate = new Date(user?.subscriptionDate || Date.now());
     const endDate = new Date(subscriptionDate);
     endDate.setMonth(endDate.getMonth() + 1);
@@ -53,13 +57,11 @@ export default function ActivePlanScreen({ navigation }) {
         Alert.alert('Pagamento Confirmado', `Pagamento do mês ${monthIndex + 1} realizado com sucesso!`);
     };
 
-    if (!user?.plan) {
+    if (!hasActivePlan) {
         return (
             <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={{ paddingTop: 0 }}>
                 <View style={[styles.header, { backgroundColor: colors.containerBg, borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
-                    <Pressable onPress={() => navigation.goBack()}>
-                        <Ionicons name="chevron-back" size={24} color={colors.text} />
-                    </Pressable>
+                    <BackButton onPress={() => navigation.goBack()} />
                     <Text style={[styles.headerTitle, { color: colors.text }]}>Meu Plano</Text>
                     <View style={{ width: 24 }} />
                 </View>
@@ -95,9 +97,7 @@ export default function ActivePlanScreen({ navigation }) {
     return (
         <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
             <View style={[styles.header, { backgroundColor: colors.containerBg, borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
-                <Pressable onPress={() => navigation.goBack()}>
-                    <Ionicons name="chevron-back" size={24} color={colors.text} />
-                </Pressable>
+                <BackButton onPress={() => navigation.goBack()} />
                 <Text style={[styles.headerTitle, { color: colors.text }]}>Meu Plano</Text>
                 <View style={{ width: 24 }} />
             </View>

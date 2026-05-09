@@ -1,85 +1,251 @@
-import React, { useState, useContext, useEffect } from 'react';
-import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View, ScrollView, Pressable, useColorScheme } from 'react-native';
+import React, { useState, useContext, useEffect, useRef } from 'react';
+import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View, ScrollView, Pressable, Modal, Alert, Image, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from './src/context/AuthContext';
+import { useThemeColors } from './src/hooks/useTheme';
+import BackButton from './src/components/BackButton';
+import { professionalsAPI, messagesAPI, connectionsAPI } from './api';
+import { sendLocalNotification, requestNotificationPermissions } from './src/services/notifications';
+import { EmojiPicker } from './src/components/EmojiPicker';
+import { AttachmentPicker } from './src/components/AttachmentPicker';
 
 export default function ChatScreen({ navigation, route }) {
   const { user } = useContext(AuthContext);
-  const systemColorScheme = useColorScheme();
-  const isDark = systemColorScheme === 'dark';
+  const colors = useThemeColors();
 
-  const colors = {
-    background: isDark ? '#050f1c' : '#f3f4f6',
-    containerBg: isDark ? '#0f172a' : '#ffffff',
-    text: isDark ? '#f1f5f9' : '#0f172a',
-    textSecondary: isDark ? '#cbd5e1' : '#475569',
-    textTertiary: isDark ? '#94a3b8' : '#94a3b8',
-    border: isDark ? '#1e293b' : '#e2e8f0',
-    primary: '#3b82f6',
-    card: isDark ? '#1e293b' : '#ffffff',
-    cardHover: isDark ? '#334155' : '#f9fafb',
-    success: '#10b981',
-  };
-
-  const [conversations, setConversations] = useState([
-    { id: '1', name: 'Dra. Ana Silva', specialty: 'Nutricionista', lastMessage: 'Qualquer dúvida, me avise!', time: '14:30', unread: 2 },
-    { id: '2', name: 'Dr. Marcos Santos', specialty: 'Educador Físico', lastMessage: 'Continue com o treino', time: '12:15', unread: 0 },
-    { id: '3', name: 'Dra. Mariana Lima', specialty: 'Psicóloga', lastMessage: 'Vamos agendar a próxima sessão?', time: '10:45', unread: 1 },
-  ]);
-
-  const [selectedConversation, setSelectedConversation] = useState(null);
-  const [messages, setMessages] = useState([
-    { id: '1', text: 'Olá! Como posso ajudar você?', sender: 'professional', timestamp: '14:25' },
-    { id: '2', text: 'Tenho dúvidas sobre meu plano alimentar', sender: 'user', timestamp: '14:28' },
-    { id: '3', text: 'Claro! Me diga suas dúvidas.', sender: 'professional', timestamp: '14:30' },
-  ]);
-  const [inputText, setInputText] = useState('');
-
-  const sendMessage = () => {
-    if (inputText.trim()) {
-      const now = new Date();
-      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      const newMessage = { id: Date.now().toString(), text: inputText, sender: 'user', timestamp: timeStr };
-      setMessages([...messages, newMessage]);
-      setInputText('');
-
-      setTimeout(() => {
-        const response = {
-          id: (Date.now() + 1).toString(),
-          text: 'Obrigado pela pergunta. Recomendo consultar um profissional para orientações personalizadas.',
-          sender: 'professional',
-          timestamp: timeStr
-        };
-        setMessages(prev => [...prev, response]);
-      }, 1000);
-    }
-  };
-
-  // open conversation when navigated with params
+  // Validação de plano para pacientes
   useEffect(() => {
-    const p = route?.params?.patient || route?.params?.conversation;
-    if (p) {
-      // normalize into conversation object
-      const conv = typeof p === 'string' ? { id: Date.now().toString(), name: p, specialty: '', lastMessage: '', time: '', unread: 0 } : p;
-      setSelectedConversation(conv);
+    if (user?.role === 'patient' && (!user.plan || user.plan === 'sem plano')) {
+      Alert.alert(
+        'Plano Necessário',
+        'Você precisa de um plano ativo para conversar com profissionais.',
+        [
+          { text: 'Ver Planos', onPress: () => navigation.navigate('Plans') },
+          { text: 'Voltar', onPress: () => navigation.goBack(), style: 'cancel' }
+        ]
+      );
+      return;
     }
-  }, [route?.params]);
+  }, [user, navigation]);
+
+  const [conversations, setConversations] = useState([]);
+  const [selectedConversation, setSelectedConversation] = useState(null);
+  const [conversation, setConversation] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [inputText, setInputText] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showAttachmentPicker, setShowAttachmentPicker] = useState(false);
+  const [attachments, setAttachments] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [pollLoading, setPollLoading] = useState(false);
+
+  const flatListRef = useRef(null);
+  const pollIntervalRef = useRef(null);
+
+  // Initialize notifications
+  useEffect(() => {
+    requestNotificationPermissions();
+  }, []);
+
+  // Load conversations on mount or when user role changes
+  useEffect(() => {
+    const loadConversations = async () => {
+      if (!user) return;
+
+      try {
+        setLoading(true);
+        const connectionsResponse = await connectionsAPI.getConnections();
+        const connections = connectionsResponse.data?.connections || connectionsResponse.data || [];
+
+        if (user.role === 'patient') {
+          // Get professional for patient
+          if (connections.length > 0) {
+            const connection = connections[0];
+            const professional = connection.professionalId;
+            setConversations([
+              {
+                id: professional._id || professional.id,
+                name: professional.name || 'Profissional',
+                specialty: professional.specialty || '',
+                lastMessage: 'Clique para conversar',
+                time: '',
+                unread: 0,
+                contactType: 'professional',
+                professional,
+                connectionId: connection._id,
+              },
+            ]);
+          }
+        } else if (user.role === 'professional') {
+          // Get patients for professional
+          const convList = connections.map((connection) => ({
+            id: connection.patientId._id || connection.patientId.id,
+            name: connection.patientId.name || 'Paciente',
+            specialty: '',
+            lastMessage: 'Clique para conversar',
+            time: '',
+            unread: 0,
+            contactType: 'patient',
+            patient: connection.patientId,
+            connectionId: connection._id,
+          }));
+          setConversations(convList);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar conversas:', error);
+        setConversations([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadConversations();
+  }, [user?.role, user?.professionalId]);
+
+  // Load messages when conversation is selected
+  useEffect(() => {
+    if (!selectedConversation) return;
+
+    const loadMessages = async () => {
+      try {
+        setLoading(true);
+        const connectionId = selectedConversation.connectionId;
+
+        if (connectionId) {
+          setConversation({ _id: connectionId });
+          // Load messages for this connection
+          const messagesResponse = await messagesAPI.getMessages(connectionId);
+          const formattedMessages = (messagesResponse.data || []).map(msg => ({
+            _id: msg._id,
+            text: msg.content,
+            sender: msg.senderType === 'patient' ? 'user' : 'professional',
+            timestamp: new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          }));
+          setMessages(formattedMessages);
+
+          // Scroll to end after loading messages
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: false });
+          }, 100);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar mensagens:', error);
+        setMessages([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadMessages();
+
+    // Setup polling for new messages
+    if (selectedConversation.connectionId) {
+      const pollMessages = async () => {
+        try {
+          setPollLoading(true);
+          const messagesResponse = await messagesAPI.getMessages(selectedConversation.connectionId);
+          const formattedMessages = (messagesResponse.data || []).map(msg => ({
+            _id: msg._id,
+            text: msg.content,
+            sender: msg.senderType === 'patient' ? 'user' : 'professional',
+            timestamp: new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          }));
+          setMessages(formattedMessages);
+        } catch (error) {
+          console.error('Erro ao fazer polling de mensagens:', error);
+        } finally {
+          setPollLoading(false);
+        }
+      };
+
+      // Poll every 3 seconds
+      pollIntervalRef.current = setInterval(pollMessages, 3000);
+
+      return () => {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+        }
+      };
+    }
+  }, [selectedConversation]);
+
+  const handleEmojiSelect = (emoji) => {
+    setInputText(prev => prev + emoji);
+  };
+
+  const handleAttachmentSelect = (attachment) => {
+    setAttachments(prev => [...prev, attachment]);
+  };
+
+  const removeAttachment = (index) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const sendMessage = async () => {
+    if (!inputText.trim() && attachments.length === 0) return;
+    if (!conversation || !conversation._id) {
+      Alert.alert('Erro', 'Conexão não encontrada.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Send message
+      await messagesAPI.sendMessage(inputText.trim(), conversation._id);
+
+      // Clear input and attachments
+      setInputText('');
+      setAttachments([]);
+
+      // Refresh messages after a short delay
+      setTimeout(async () => {
+        try {
+          const messagesResponse = await messagesAPI.getMessages(conversation._id);
+          const formattedMessages = (messagesResponse.data || []).map(msg => ({
+            _id: msg._id,
+            text: msg.content,
+            sender: msg.senderType === 'patient' ? 'user' : 'professional',
+            timestamp: new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          }));
+          setMessages(formattedMessages);
+          flatListRef.current?.scrollToEnd({ animated: true });
+        } catch (err) {
+          console.error('Erro ao atualizar mensagens:', err);
+        }
+      }, 500);
+
+      // Send local notification
+      if (selectedConversation) {
+        sendLocalNotification(
+          'Mensagem enviada',
+          `Mensagem enviada para ${selectedConversation.name}`
+        );
+      }
+    } catch (error) {
+      console.error('Erro ao enviar mensagem:', error);
+      Alert.alert('Erro', 'Falha ao enviar mensagem. Tente novamente.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (selectedConversation) {
     return (
       <View style={[styles.chatContainer, { backgroundColor: colors.background }]}>
         <View style={[styles.chatHeader, { backgroundColor: colors.containerBg, borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
-          <Pressable onPress={() => setSelectedConversation(null)} style={styles.backButton}>
-            <Ionicons name="chevron-back" size={24} color={colors.text} />
-          </Pressable>
+          <BackButton onPress={() => setSelectedConversation(null)} />
           <View style={styles.chatHeaderInfo}>
             <Text style={[styles.chatHeaderName, { color: colors.text }]}>{selectedConversation.name}</Text>
             <Text style={[styles.chatHeaderSpecialty, { color: colors.textSecondary }]}>{selectedConversation.specialty}</Text>
           </View>
-          <Ionicons name="call" size={20} color={colors.primary} style={{ marginRight: 16 }} />
+          <Pressable onPress={() => navigation.navigate('Video', { contact: selectedConversation })}>
+            <Ionicons name="call" size={20} color={colors.primary} style={{ marginRight: 16 }} />
+          </Pressable>
         </View>
 
         <FlatList
+          ref={flatListRef}
           data={messages}
           renderItem={({ item }) => (
             <View style={[styles.message, item.sender === 'user' ? styles.userMessage : styles.professionalMessage]}>
@@ -87,24 +253,107 @@ export default function ChatScreen({ navigation, route }) {
               <Text style={[styles.messageTime, { color: item.sender === 'user' ? 'rgba(255,255,255,0.7)' : colors.textTertiary }]}>{item.timestamp}</Text>
             </View>
           )}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => item._id || item.id}
           style={styles.messagesList}
           contentContainerStyle={styles.messagesContainer}
+          ListEmptyComponent={
+            loading || pollLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Carregando mensagens...</Text>
+              </View>
+            ) : (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="chatbubble-outline" size={48} color={colors.textSecondary} />
+                <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Nenhuma mensagem ainda. Comece a conversa!</Text>
+              </View>
+            )
+          }
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
+          onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
         />
 
         <View style={[styles.inputContainer, { backgroundColor: colors.containerBg, borderTopColor: colors.border, borderTopWidth: 1 }]}>
-          <TextInput
-            style={[styles.input, { backgroundColor: colors.cardHover, color: colors.text, borderColor: colors.border }]}
-            placeholder="Digite uma mensagem..."
-            placeholderTextColor={colors.textTertiary}
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-          />
-          <Pressable style={[styles.sendButton, { backgroundColor: colors.primary }]} onPress={sendMessage}>
-            <Ionicons name="send" size={18} color="#ffffff" />
-          </Pressable>
+          {/* Attachments preview */}
+          {attachments.length > 0 && (
+            <View style={styles.attachmentsContainer}>
+              {attachments.map((attachment, index) => (
+                <View key={index} style={[styles.attachmentItem, { backgroundColor: colors.cardHover }]}>
+                  {attachment.type === 'image' && (
+                    <Image source={{ uri: attachment.uri }} style={styles.attachmentImage} />
+                  )}
+                  <View style={styles.attachmentInfo}>
+                    <Text style={[styles.attachmentName, { color: colors.text }]} numberOfLines={1}>
+                      {attachment.fileName}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => removeAttachment(index)}
+                    style={styles.removeAttachment}
+                  >
+                    <Ionicons name="close" size={16} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <View style={styles.inputRow}>
+            <TouchableOpacity
+              onPress={() => setShowAttachmentPicker(true)}
+              style={[styles.actionButton, { backgroundColor: colors.cardHover }]}
+            >
+              <Ionicons name="attach" size={20} color={colors.primary} />
+            </TouchableOpacity>
+
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.cardHover, color: colors.text, borderColor: colors.border }]}
+              placeholder="Digite uma mensagem..."
+              placeholderTextColor={colors.textTertiary}
+              value={inputText}
+              onChangeText={setInputText}
+              multiline
+              maxLength={500}
+            />
+
+            <TouchableOpacity
+              onPress={() => setShowEmojiPicker(true)}
+              style={[styles.actionButton, { backgroundColor: colors.cardHover }]}
+            >
+              <Ionicons name="happy" size={20} color={colors.primary} />
+            </TouchableOpacity>
+
+            <Pressable
+              style={[styles.sendButton, { backgroundColor: (inputText.trim() || attachments.length > 0) ? colors.primary : colors.textTertiary }]}
+              onPress={sendMessage}
+              disabled={loading || (!inputText.trim() && attachments.length === 0)}
+            >
+              <Ionicons name={loading ? "time" : "send"} size={18} color="#ffffff" />
+            </Pressable>
+          </View>
         </View>
+
+        {/* Emoji Picker Modal */}
+        <EmojiPicker
+          visible={showEmojiPicker}
+          onSelectEmoji={handleEmojiSelect}
+          onClose={() => setShowEmojiPicker(false)}
+        />
+
+        {/* Attachment Picker Modal */}
+        <Modal
+          visible={showAttachmentPicker}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowAttachmentPicker(false)}
+        >
+          <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <AttachmentPicker
+              onSelectAttachment={handleAttachmentSelect}
+              onClose={() => setShowAttachmentPicker(false)}
+            />
+          </View>
+        </Modal>
       </View>
     );
   }
@@ -115,34 +364,49 @@ export default function ChatScreen({ navigation, route }) {
         <Text style={[styles.headerTitle, { color: colors.text }]}>Conversas</Text>
       </View>
 
-      <FlatList
-        data={conversations}
-        renderItem={({ item }) => (
-          <Pressable
-            onPress={() => setSelectedConversation(item)}
-            style={[styles.conversationCard, { backgroundColor: colors.card, borderBottomColor: colors.border, borderBottomWidth: 1 }]}
-          >
-            <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
-              <Ionicons name="person" size={20} color="#ffffff" />
-            </View>
-            <View style={styles.conversationContent}>
-              <View style={styles.conversationHeader}>
-                <Text style={[styles.conversationName, { color: colors.text }]}>{item.name}</Text>
-                <Text style={[styles.conversationTime, { color: colors.textTertiary }]}>{item.time}</Text>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Carregando conversas...</Text>
+        </View>
+      ) : conversations.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="chatbubbles-outline" size={48} color={colors.textSecondary} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Nenhuma conversa disponível</Text>
+          {user?.role === 'patient' && (
+            <Text style={[styles.emptySubtext, { color: colors.textTertiary }]}>Conecte-se com um profissional na aba Buscar</Text>
+          )}
+        </View>
+      ) : (
+        <FlatList
+          data={conversations}
+          renderItem={({ item }) => (
+            <Pressable
+              onPress={() => setSelectedConversation(item)}
+              style={[styles.conversationCard, { backgroundColor: colors.card, borderBottomColor: colors.border, borderBottomWidth: 1 }]}
+            >
+              <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
+                <Ionicons name="person" size={20} color="#ffffff" />
               </View>
-              <Text style={[styles.conversationSpecialty, { color: colors.textTertiary }]}>{item.specialty}</Text>
-              <Text style={[styles.lastMessage, { color: colors.textSecondary }]} numberOfLines={1}>{item.lastMessage}</Text>
-            </View>
-            {item.unread > 0 && (
-              <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
-                <Text style={styles.unreadText}>{item.unread}</Text>
+              <View style={styles.conversationContent}>
+                <View style={styles.conversationHeader}>
+                  <Text style={[styles.conversationName, { color: colors.text }]}>{item.name}</Text>
+                  <Text style={[styles.conversationTime, { color: colors.textTertiary }]}>{item.time}</Text>
+                </View>
+                <Text style={[styles.conversationSpecialty, { color: colors.textTertiary }]}>{item.specialty}</Text>
+                <Text style={[styles.lastMessage, { color: colors.textSecondary }]} numberOfLines={1}>{item.lastMessage}</Text>
               </View>
-            )}
-          </Pressable>
-        )}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingTop: 8 }}
-      />
+              {item.unread > 0 && (
+                <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.unreadText}>{item.unread}</Text>
+                </View>
+              )}
+            </Pressable>
+          )}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={{ paddingTop: 8 }}
+        />
+      )}
     </View>
   );
 }
@@ -168,31 +432,142 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 12,
   },
-  backButton: {
-    padding: 8,
-  },
   chatHeaderInfo: {
     flex: 1,
     marginLeft: 12,
   },
   chatHeaderName: {
     fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 2,
+    fontWeight: '600',
   },
   chatHeaderSpecialty: {
     fontSize: 12,
+    marginTop: 2,
+  },
+  messagesList: {
+    flex: 1,
+  },
+  messagesContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  message: {
+    marginVertical: 6,
+    maxWidth: '85%',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  userMessage: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#007AFF',
+  },
+  professionalMessage: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#E5E5EA',
+  },
+  messageText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  messageTime: {
+    fontSize: 11,
+    marginTop: 4,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  emptySubtext: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  inputContainer: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  attachmentsContainer: {
+    gap: 8,
+    marginBottom: 8,
+  },
+  attachmentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 8,
+    gap: 8,
+  },
+  attachmentImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 4,
+  },
+  attachmentInfo: {
+    flex: 1,
+  },
+  attachmentName: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  removeAttachment: {
+    padding: 4,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  actionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  input: {
+    flex: 1,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 14,
+    maxHeight: 100,
+    borderWidth: 1,
+  },
+  sendButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   conversationCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 12,
   },
   avatarContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -207,7 +582,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   conversationName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
   },
   conversationTime: {
@@ -215,7 +590,7 @@ const styles = StyleSheet.create({
   },
   conversationSpecialty: {
     fontSize: 12,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   lastMessage: {
     fontSize: 13,
@@ -226,61 +601,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 8,
   },
   unreadText: {
     color: '#ffffff',
     fontSize: 12,
-    fontWeight: 'bold',
-  },
-  messagesList: {
-    flex: 1,
-  },
-  messagesContainer: {
-    padding: 16,
-  },
-  message: {
-    maxWidth: '85%',
-    marginBottom: 12,
-    padding: 12,
-    borderRadius: 16,
-  },
-  userMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#3b82f6',
-  },
-  professionalMessage: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#e2e8f0',
-  },
-  messageText: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  messageTime: {
-    fontSize: 11,
-    marginTop: 4,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 8,
-  },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    maxHeight: 100,
-  },
-  sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+    fontWeight: '600',
   },
 });

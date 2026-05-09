@@ -1,6 +1,8 @@
 import React, { useState, useContext } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AuthContext } from './src/context/AuthContext';
+import { useTheme } from './src/context/ThemeContext';
+import BackButton from './src/components/BackButton';
 
 const durations = [
   { id: 'monthly', label: 'Mensal' },
@@ -40,6 +42,7 @@ const prices = {
 };
 
 export default function SubscriptionScreen({ navigation, route }) {
+  const { colors } = useTheme();
   const { user, updateUser } = useContext(AuthContext);
   const updateProfData = route.params?.updateProfData;
   const selectedPlanFromRoute = route.params?.selectedPlan ?? 'test';
@@ -101,19 +104,29 @@ export default function SubscriptionScreen({ navigation, route }) {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Escolha seu Plano - Conecta Saúde</Text>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
+      <Text style={[styles.title, { color: colors.text }]}>Escolha seu Plano - Conecta Saúde</Text>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Duração</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Duração</Text>
         <View style={styles.options}>
           {durations.map((duration) => (
             <TouchableOpacity
               key={duration.id}
-              style={[styles.option, selectedDuration === duration.id && styles.optionSelected]}
+              style={[
+                styles.option,
+                { backgroundColor: colors.card, borderColor: colors.border },
+                selectedDuration === duration.id && { borderColor: colors.primary, backgroundColor: colors.cardHover },
+              ]}
               onPress={() => setSelectedDuration(duration.id)}
             >
-              <Text style={[styles.optionText, selectedDuration === duration.id && styles.optionTextSelected]}>
+              <Text
+                style={[
+                  styles.optionText,
+                  { color: colors.text },
+                  selectedDuration === duration.id && { color: colors.primary, fontWeight: 'bold' },
+                ]}
+              >
                 {duration.label}
               </Text>
             </TouchableOpacity>
@@ -122,29 +135,29 @@ export default function SubscriptionScreen({ navigation, route }) {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Plano</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Plano</Text>
         {Object.entries(plans).map(([key, plan]) => (
           <TouchableOpacity
             key={key}
-            style={[styles.planCard, selectedPlan === key && styles.planCardSelected]}
+            style={[
+              styles.planCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+              selectedPlan === key && { borderColor: colors.primary, backgroundColor: colors.cardHover },
+            ]}
             onPress={() => setSelectedPlan(key)}
           >
-            <Text style={styles.planTitle}>{plan.title}</Text>
-            <Text style={styles.planPrice}>
-              R$ {prices[selectedDuration][key].toFixed(2)} / {durations.find(d => d.id === selectedDuration).label.toLowerCase()}
-            </Text>
-            <Text style={styles.planDescription}>{plan.description}</Text>
+            <Text style={[styles.planTitle, { color: colors.text }]}>{plan.title}</Text>
+            <Text style={[styles.planPrice, { color: colors.primary }]}>R$ {prices[selectedDuration][key].toFixed(2)} / {durations.find(d => d.id === selectedDuration).label.toLowerCase()}</Text>
+            <Text style={[styles.planDescription, { color: colors.textSecondary }]}>{plan.description}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      <TouchableOpacity style={styles.subscribeButton} onPress={handleSubscribe}>
-        <Text style={styles.subscribeText}>Assinar Agora</Text>
+      <TouchableOpacity style={[styles.subscribeButton, { backgroundColor: colors.primary }]} onPress={handleSubscribe}>
+        <Text style={[styles.subscribeText, { color: '#ffffff' }]}>Assinar Agora</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-        <Text style={styles.backText}>Voltar</Text>
-      </TouchableOpacity>
+      <BackButton style={styles.subscriptionBackButton} onPress={() => navigation.goBack()} />
     </ScrollView>
   );
 }
@@ -238,6 +251,10 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  subscriptionBackButton: {
+    alignSelf: 'flex-start',
+    marginTop: 16,
   },
   backButton: {
     alignItems: 'center',

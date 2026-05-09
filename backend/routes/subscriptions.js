@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const Subscription = require('../models/Subscription');
 const Professional = require('../models/Professional');
 const User = require('../models/User');
+const Connection = require('../models/Connection');
 
 const router = express.Router();
 
@@ -23,27 +24,48 @@ const verifyToken = (req, res, next) => {
 router.post('/', verifyToken, async (req, res) => {
     const { professionalId, plan, duration, price } = req.body;
     try {
+        const planValue = String(plan || '').trim().toLowerCase();
+        const planLabels = {
+            basico: 'Básico',
+            básico: 'Básico',
+            basic: 'Básico',
+            intermediario: 'Intermediário',
+            intermediário: 'Intermediário',
+            intermediate: 'Intermediário',
+            premium: 'Premium',
+            prem: 'Premium',
+        };
+        const activePlan = planLabels[planValue] || plan;
+        const consultations = planValue === 'basico' || planValue === 'básico' || planValue === 'basic' ? 1 : planValue === 'intermediario' || planValue === 'intermediário' || planValue === 'intermediate' ? 2 : 3;
+
         const subscription = new Subscription({
             user: req.user.id,
             professional: professionalId,
-            plan,
+            plan: activePlan,
             duration,
             price,
         });
         await subscription.save();
 
-        // Update professional balance and clients
+        // Update professional balance and connected clients
         await Professional.findByIdAndUpdate(professionalId, {
             $inc: { balance: price },
-            $push: { clients: req.user.id },
+            $addToSet: { clients: req.user.id },
         });
 
-        // Update user plan and consultations
-        const consultations = plan === 'basic' ? 1 : plan === 'intermediate' ? 2 : 3;
+        // Update user plan, consultations and linked professional
         await User.findByIdAndUpdate(req.user.id, {
-            plan,
+            plan: activePlan,
             consultationsLeft: consultations,
+            professionalId,
         });
+
+        // Create connection record when patient signs up for a plan with a professional
+        const existingConnection = await Connection.findOne({ patientId: req.user.id, professionalId });
+        if (!existingConnection) {
+            const connection = new Connection({ patientId: req.user.id, professionalId });
+            await connection.save();
+        }
 
         res.status(201).json(subscription);
     } catch (err) {

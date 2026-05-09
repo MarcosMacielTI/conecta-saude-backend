@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const professionalSchema = new mongoose.Schema({
     name: { type: String, required: true },
+    email: { type: String, required: false },
     specialty: { type: String, required: true },
     rating: { type: Number, default: 0 },
     price: { type: String, required: true }, // e.g., 'Plano Premium'

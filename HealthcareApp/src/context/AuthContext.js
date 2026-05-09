@@ -15,12 +15,18 @@ export const AuthProvider = ({ children }) => {
 
   const bootstrapAsync = async () => {
     try {
+      console.log('Bootstrapping auth...');
       const savedToken = await AsyncStorage.getItem('token');
       const savedUser = await AsyncStorage.getItem('user');
+
+      console.log('Retrieved from storage - token:', !!savedToken, 'user:', !!savedUser);
 
       if (savedToken) {
         setToken(savedToken);
         setUser(savedUser ? JSON.parse(savedUser) : null);
+        console.log('Auth state restored successfully');
+      } else {
+        console.log('No saved auth data found');
       }
     } catch (e) {
       console.error('Failed to restore token', e);
@@ -42,7 +48,7 @@ export const AuthProvider = ({ children }) => {
       setUser(user);
       return { success: true };
     } catch (error) {
-      return { success: false, error: error.response?.data?.message || error.message || 'Login failed' };
+      return { success: false, error: error.response?.data?.error || error.response?.data?.message || error.message || 'Login failed' };
     } finally {
       setIsLoading(false);
     }
@@ -50,18 +56,28 @@ export const AuthProvider = ({ children }) => {
 
   const register = useCallback(async (name, email, password, cpf, role) => {
     setIsLoading(true);
+    console.log('Starting registration with:', { name, email, cpf, role });
     try {
+      console.log('Calling authService.register...');
       const response = await authService.register({ name, email, password, cpf, role });
+      console.log('Registration API response:', response.data);
       const { token, user } = response.data;
 
+      console.log('Saving token to AsyncStorage...');
       await AsyncStorage.setItem('token', token);
+      console.log('Saving user to AsyncStorage...');
       await AsyncStorage.setItem('user', JSON.stringify(user));
 
+      console.log('Setting state...');
       setToken(token);
       setUser(user);
+      console.log('Registration successful! isAuthenticated should be true now');
       return { success: true };
     } catch (error) {
-      return { success: false, error: error.response?.data?.message || error.message || 'Registration failed' };
+      console.error('Registration error:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      return { success: false, error: error.response?.data?.error || error.response?.data?.message || error.message || 'Registration failed' };
     } finally {
       setIsLoading(false);
     }
@@ -80,7 +96,7 @@ export const AuthProvider = ({ children }) => {
       setUser(user);
       return { success: true };
     } catch (error) {
-      return { success: false, error: error.response?.data?.message || 'Google login failed' };
+      return { success: false, error: error.response?.data?.error || error.response?.data?.message || 'Google login failed' };
     } finally {
       setIsLoading(false);
     }
