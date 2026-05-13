@@ -21,7 +21,7 @@ const authenticateToken = (req, res, next) => {
     }
 };
 
-// POST /messages - Send a message
+// POST /messages - Send a message (with plan verification for patients)
 router.post('/messages', authenticateToken, async (req, res) => {
     const { content, connectionId } = req.body;
     const senderId = req.user.id;
@@ -33,6 +33,14 @@ router.post('/messages', authenticateToken, async (req, res) => {
     try {
         const sender = await User.findById(senderId);
         if (!sender) return res.status(404).json({ error: 'Sender not found' });
+
+        // Check if patient has active plan
+        if (sender.role === 'patient' && !sender.plan) {
+            return res.status(403).json({ 
+                error: 'Active plan required to send messages. Please purchase a plan.',
+                code: 'NO_PLAN'
+            });
+        }
 
         const connection = await Connection.findById(connectionId);
         if (!connection) return res.status(404).json({ error: 'Connection not found' });

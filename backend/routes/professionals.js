@@ -7,14 +7,18 @@ const router = express.Router();
 // Get all professionals
 router.get('/', async (req, res) => {
     try {
+        console.log('🔍 [Professionals] GET / - Fetching all professionals');
         const professionals = await Professional.find().populate('clients', 'name email role cpf plan consultationsLeft');
+        console.log(`✅ [Professionals] Found ${professionals?.length || 0} professionals`);
 
         if (!professionals || professionals.length === 0) {
+            console.warn('⚠️ [Professionals] No professionals found');
             return res.status(404).json({ error: 'No professional found' });
         }
 
         res.json(professionals);
     } catch (err) {
+        console.error('❌ [Professionals] Error:', err.message);
         res.status(400).json({ error: err.message });
     }
 });
@@ -22,12 +26,16 @@ router.get('/', async (req, res) => {
 // Get the professional for patients
 router.get('/professional', async (req, res) => {
     try {
+        console.log('🔍 [Professionals] GET /professional - Fetching first professional');
         const professional = await Professional.findOne().populate('clients', 'name email role cpf plan consultationsLeft');
+        console.log('✅ [Professionals] Got professional:', professional?.name);
         if (!professional) {
+            console.warn('⚠️ [Professionals] No professional found in GET /professional');
             return res.status(404).json({ error: 'No professional found' });
         }
         res.json(professional);
     } catch (err) {
+        console.error('❌ [Professionals] Error in GET /professional:', err.message);
         res.status(400).json({ error: err.message });
     }
 });

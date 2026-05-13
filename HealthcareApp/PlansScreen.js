@@ -1,31 +1,56 @@
 import React, { useContext, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Platform, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from './src/hooks/useTheme';
 import { AuthContext } from './src/context/AuthContext';
 import BackButton from './src/components/BackButton';
-import { subscriptionsAPI, professionalsAPI } from './api';
+import { subscriptionsAPI, professionalsAPI, paymentsAPI } from './api';
 
 export default function PlansScreen({ navigation }) {
   const colors = useThemeColors();
   const { user, updateUser } = useContext(AuthContext);
   const [selectedPeriod, setSelectedPeriod] = useState('mensal');
   const [defaultProfessional, setDefaultProfessional] = useState(null);
+  const [isProfessionalLoading, setIsProfessionalLoading] = useState(false);
+  const [professionalError, setProfessionalError] = useState(null);
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [confirmPlan, setConfirmPlan] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState('pix');
+  const [paymentResult, setPaymentResult] = useState(null);
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
 
   useEffect(() => {
     const loadDefaultProfessional = async () => {
       if (user?.professionalId) return;
+      setIsProfessionalLoading(true);
+      setProfessionalError(null);
+
       try {
         const response = await professionalsAPI.getProfessional();
-        setDefaultProfessional(response.data);
+        if (response?.data) {
+          setDefaultProfessional(response.data);
+          return;
+        }
       } catch (error) {
         console.error('Erro ao carregar profissional padrão:', error);
       }
+
+      try {
+        const fallbackResponse = await professionalsAPI.getAll();
+        if (fallbackResponse?.data?.length > 0) {
+          setDefaultProfessional(fallbackResponse.data[0]);
+          setProfessionalError(null);
+          return;
+        }
+      } catch (error) {
+        console.error('Erro ao carregar profissional fallback:', error);
+      }
+
+      setProfessionalError('Não foi possível carregar um profissional no momento.');
     };
 
-    loadDefaultProfessional();
+    loadDefaultProfessional().finally(() => setIsProfessionalLoading(false));
   }, [user]);
 
   // Preços para cada período
@@ -109,44 +134,89 @@ export default function PlansScreen({ navigation }) {
     return 1;
   };
 
+  const paymentMethods = [
+    { id: 'pix', label: 'PIX' },
+    { id: 'credit_card', label: 'Cartão de Crédito' },
+    { id: 'debit_card', label: 'Cartão de Débito' },
+    { id: 'boleto', label: 'Boleto' },
+  ];
+
   const getConfirmMessage = (plan, price, periodLabel) => {
     const isTestPlan = plan.id === 'teste';
+    const methodLabel = paymentMethods.find((method) => method.id === paymentMethod)?.label || 'PIX';
     const baseMessage = isTestPlan
-      ? 'Você quer testar o Plano Premium por R$0,01?\n\nEle terá todos os benefícios do Premium e ficará vinculado ao seu profissional.'
-      : `Você escolheu o plano ${plan.name} ${periodLabel.toLowerCase()} por R$ ${price.toFixed(2)}.\n\nAo confirmar, você receberá os direitos do plano contratado com o profissional vinculado.`;
+      ? `Você quer testar o Plano Premium por R$0,01 usando ${methodLabel}?\n\nEle terá todos os benefícios do Premium e ficará vinculado ao seu profissional.`
+      : `Você escolheu o plano ${plan.name} ${periodLabel.toLowerCase()} por R$ ${price.toFixed(2)} usando ${methodLabel}.\n\nAo confirmar, você receberá os direitos do plano contratado com o profissional vinculado.`;
 
     return baseMessage;
   };
 
   const handleSelectPlan = async (plan) => {
+    console.log('📋 handleSelectPlan called with plan:', plan);
     try {
+      if (isProfessionalLoading) {
+        Alert.alert('Aguarde', 'Carregando profissional. Tente novamente em alguns segundos.');
+        return;
+      }
       if (!user) {
+        console.warn('User not found');
         Alert.alert('Atenção', 'Faça login para contratar um plano.');
         return;
       }
 
+      console.log('✅ User authenticated:', user.email);
+
       const isTestPlan = plan.id === 'teste';
       const planKey = isTestPlan ? 'premium' : plan.id;
-      const price = isTestPlan ? 0.01 : prices[selectedPeriod][planKey];
+      
+      console.log('💰 Calculating price for:', { selectedPeriod, planKey, isTestPlan });
+      console.log('Available prices:', prices);
+      
+      const price = isTestPlan ? 0.01 : (prices[selectedPeriod]?.[planKey] || prices['mensal'][planKey] || 0);
       const periodLabel = periods.find(p => p.id === selectedPeriod)?.label || 'Mensal';
+      
+      console.log('💵 Price calculated:', { price, periodLabel });
+
       let professionalId = user.professionalId || defaultProfessional?._id;
+      console.log('🔍 Initial professionalId:', professionalId);
 
       if (!professionalId) {
+        console.log('🔄 Fetching professional...');
         try {
           const response = await professionalsAPI.getProfessional();
-          setDefaultProfessional(response.data);
-          professionalId = response.data?._id;
+          console.log('✅ Got professional response:', response?.data?.name);
+          if (response?.data) {
+            setDefaultProfessional(response.data);
+            professionalId = response.data._id;
+          }
         } catch (error) {
-          console.error('Erro ao carregar profissional padrão:', error);
+          console.error('❌ Erro ao carregar profissional padrão:', error.message);
         }
       }
 
       if (!professionalId) {
+        console.log('🔄 Fetching all professionals as fallback...');
+        try {
+          const fallbackResponse = await professionalsAPI.getAll();
+          console.log('✅ Got professionals:', fallbackResponse?.data?.length);
+          if (fallbackResponse?.data?.length > 0) {
+            setDefaultProfessional(fallbackResponse.data[0]);
+            professionalId = fallbackResponse.data[0]._id;
+            console.log('✅ Set professionalId from fallback:', professionalId);
+          }
+        } catch (error) {
+          console.error('❌ Erro ao carregar profissional fallback:', error.message);
+        }
+      }
+
+      if (!professionalId) {
+        console.error('❌ No professionalId found');
         Alert.alert('Atenção', 'Nenhum profissional disponível para associar o plano. Tente novamente mais tarde.');
         return;
       }
 
       const consultations = getConsultationsCount(plan.id);
+      console.log('📝 Confirm plan object:', { plan: plan.name, price, periodLabel, consultations });
 
       setConfirmPlan({
         ...plan,
@@ -157,9 +227,12 @@ export default function PlansScreen({ navigation }) {
         isTestPlan,
         consultations,
       });
+      setPaymentMethod('pix');
+      console.log('✅ Setting confirmVisible to true');
       setConfirmVisible(true);
     } catch (error) {
-      console.error('Erro geral no handleSelectPlan:', error);
+      console.error('❌ Erro geral no handleSelectPlan:', error);
+      console.error('Stack:', error.stack);
       Alert.alert('Erro', 'Ocorreu um erro inesperado. Tente novamente.');
     }
   };
@@ -168,174 +241,195 @@ export default function PlansScreen({ navigation }) {
     if (!confirmPlan || !user) return;
     setConfirmVisible(false);
 
+    if (paymentMethod !== 'pix') {
+      Alert.alert('Em breve', 'No momento, apenas PIX está disponível. Outros meios serão adicionados em breve.');
+      return;
+    }
+
+    setIsPaymentProcessing(true);
     try {
-      await subscriptionsAPI.create({
+      const response = await paymentsAPI.createPix({
         professionalId: confirmPlan.professionalId,
-        plan: confirmPlan.isTestPlan ? 'premium' : confirmPlan.id,
-        duration: selectedPeriod,
-        price: confirmPlan.price,
+        planName: confirmPlan.planKey,
+        planPrice: confirmPlan.price,
+        planDuration: selectedPeriod,
       });
 
-      const updatedUser = {
-        ...user,
-        plan: confirmPlan.isTestPlan ? 'Teste Premium' : confirmPlan.name,
-        consultationsLeft: confirmPlan.consultations,
-        professionalId: confirmPlan.professionalId,
-      };
-
-      await updateUser(updatedUser);
-      setConfirmPlan(null);
-
-      Alert.alert('Sucesso', confirmPlan.isTestPlan
-        ? 'Você contratou o Plano Premium de teste! Todos os direitos do Premium foram liberados.'
-        : `Plano ${confirmPlan.name} ${confirmPlan.periodLabel.toLowerCase()} contratado com sucesso!`);
-      navigation.goBack();
+      setPaymentResult(response.data);
+      setPaymentModalVisible(true);
     } catch (error) {
-      console.error('Erro ao contratar plano:', error);
-      Alert.alert('Erro', error.response?.data?.error || 'Não foi possível contratar o plano.');
+      console.error('Erro ao criar pagamento PIX:', error);
+      Alert.alert('Erro', error.response?.data?.error || 'Não foi possível iniciar o pagamento PIX.');
+    } finally {
+      setIsPaymentProcessing(false);
     }
   };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={{ paddingBottom: 32 }}>
-      <View style={[styles.header, { backgroundColor: colors.containerBg, borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
-        <View style={styles.headerLeft}>
-          <BackButton onPress={() => navigation.goBack()} />
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScrollView style={styles.innerScrollView} contentContainerStyle={{ paddingBottom: 32 }}>
+        <View style={[styles.header, { backgroundColor: colors.containerBg, borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
+          <View style={styles.headerLeft}>
+            <BackButton onPress={() => navigation.goBack()} />
+          </View>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Planos Disponíveis</Text>
+          <View style={styles.headerRight} />
         </View>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Planos Disponíveis</Text>
-        <View style={styles.headerRight} />
-      </View>
 
-      <View style={styles.headerContent}>
-        <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Escolha o período e o plano que melhor se adequa às suas necessidades
-        </Text>
-      </View>
+        <View style={styles.headerContent}>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            Escolha o período e o plano que melhor se adequa às suas necessidades
+          </Text>
+          {isProfessionalLoading && (
+            <Text style={[styles.infoText, { color: colors.primary, marginTop: 8 }]}>Carregando profissional disponível...</Text>
+          )}
+          {!isProfessionalLoading && professionalError && (
+            <Text style={[styles.infoText, { color: '#d9534f', marginTop: 8 }]}>Nenhum profissional disponível no momento.</Text>
+          )}
+          {!isProfessionalLoading && !professionalError && !user?.professionalId && defaultProfessional && (
+            <Text style={[styles.infoText, { color: colors.text, marginTop: 8 }]}>Profissional disponível: {defaultProfessional.name}</Text>
+          )}
+        </View>
 
-      {/* Seletor de Período */}
-      <View style={styles.periodSelector}>
-        {periods.map((period) => (
-          <Pressable
-            key={period.id}
-            style={[
-              styles.periodButton,
-              {
-                backgroundColor: selectedPeriod === period.id ? colors.primary : colors.card,
-                borderColor: colors.border,
-                borderWidth: 1,
-              },
-            ]}
-            onPress={() => setSelectedPeriod(period.id)}
-          >
-            <Text
+        <View style={styles.periodSelector}>
+          {periods.map((period) => (
+            <Pressable
+              key={period.id}
               style={[
-                styles.periodButtonText,
+                styles.periodButton,
                 {
-                  color: selectedPeriod === period.id ? '#ffffff' : colors.text,
-                  fontWeight: selectedPeriod === period.id ? '700' : '500',
+                  backgroundColor: selectedPeriod === period.id ? colors.primary : colors.card,
+                  borderColor: colors.border,
+                  borderWidth: 1,
                 },
               ]}
+              onPress={() => setSelectedPeriod(period.id)}
             >
-              {period.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Cards de Planos */}
-      <View style={styles.plansContainer}>
-        {plans.map((plan) => {
-          const isTestPlan = plan.id === 'teste';
-          const planKey = isTestPlan ? 'premium' : plan.id;
-          const price = isTestPlan ? 0.01 : prices[selectedPeriod][planKey];
-          const monthlyPrice = price / periods.find(p => p.id === selectedPeriod).divider;
-
-          return (
-            <View
-              key={plan.id}
-              style={[
-                styles.planCard,
-                {
-                  backgroundColor: colors.card,
-                  borderColor: plan.popular ? colors.primary : colors.border,
-                  borderWidth: plan.popular ? 2 : 1,
-                },
-              ]}
-            >
-              {plan.popular && (
-                <View style={[styles.popularBadge, { backgroundColor: colors.primary }]}>
-                  <Ionicons name="star" size={12} color="white" />
-                  <Text style={styles.popularBadgeText}>Mais Popular</Text>
-                </View>
-              )}
-
-              <View style={styles.planHeader}>
-                <Text style={[styles.planName, { color: colors.text }]}>{plan.name}</Text>
-                <Text style={[styles.planDescription, { color: colors.textSecondary }]}>{plan.description}</Text>
-              </View>
-
-              <View style={styles.priceSection}>
-                <View style={styles.priceRow}>
-                  <Text style={[styles.priceValue, { color: colors.primary }]}>R$ {price.toFixed(2)}</Text>
-                  <Text style={[styles.pricePeriod, { color: colors.textSecondary }]}>/{selectedPeriod}</Text>
-                </View>
-                <View style={[styles.monthlyPriceRow, { backgroundColor: colors.cardHover, borderColor: colors.border }]}>
-                  <Text style={[styles.monthlyPriceLabel, { color: colors.textSecondary }]}>R$ {monthlyPrice.toFixed(2)}/mês</Text>
-                </View>
-              </View>
-
-              <View style={[styles.consultationsBadge, { backgroundColor: `${colors.primary}20` }]}>
-                <Ionicons name="calendar" size={14} color={colors.primary} />
-                <Text style={[styles.consultationsText, { color: colors.primary }]}>{plan.consultations}</Text>
-              </View>
-
-              <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-              <View style={styles.featuresSection}>
-                <Text style={[styles.featuresTitle, { color: colors.text }]}>O que está incluído:</Text>
-                <View style={styles.featuresList}>
-                  {plan.features.map((feature, index) => (
-                    <View key={index} style={styles.featureItem}>
-                      <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-                      <Text style={[styles.featureText, { color: colors.text }]}>{feature}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-
-              <Pressable
+              <Text
                 style={[
-                  styles.selectButton,
+                  styles.periodButtonText,
                   {
-                    backgroundColor: plan.popular ? colors.primary : colors.card,
-                    borderColor: colors.primary,
-                    borderWidth: plan.popular ? 0 : 1,
+                    color: selectedPeriod === period.id ? '#ffffff' : colors.text,
+                    fontWeight: selectedPeriod === period.id ? '700' : '500',
                   },
                 ]}
-                onPress={() => handleSelectPlan(plan)}
               >
-                <Text
+                {period.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* Cards de Planos */}
+        <View style={styles.plansContainer}>
+          {plans.map((plan) => {
+            const isTestPlan = plan.id === 'teste';
+            const planKey = isTestPlan ? 'premium' : plan.id;
+            const price = isTestPlan ? 0.01 : prices[selectedPeriod][planKey];
+            const monthlyPrice = price / periods.find(p => p.id === selectedPeriod).divider;
+
+            return (
+              <View
+                key={plan.id}
+                style={[
+                  styles.planCard,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: plan.popular ? colors.primary : colors.border,
+                    borderWidth: plan.popular ? 2 : 1,
+                  },
+                ]}
+              >
+                {plan.popular && (
+                  <View style={[styles.popularBadge, { backgroundColor: colors.primary }]}>
+                    <Ionicons name="star" size={12} color="white" />
+                    <Text style={styles.popularBadgeText}>Mais Popular</Text>
+                  </View>
+                )}
+
+                <View style={styles.planHeader}>
+                  <Text style={[styles.planName, { color: colors.text }]}>{plan.name}</Text>
+                  <Text style={[styles.planDescription, { color: colors.textSecondary }]}>{plan.description}</Text>
+                </View>
+
+                <View style={styles.priceSection}>
+                  <View style={styles.priceRow}>
+                    <Text style={[styles.priceValue, { color: colors.primary }]}>R$ {price.toFixed(2)}</Text>
+                    <Text style={[styles.pricePeriod, { color: colors.textSecondary }]}>/{selectedPeriod}</Text>
+                  </View>
+                  <View style={[styles.monthlyPriceRow, { backgroundColor: colors.cardHover, borderColor: colors.border }]}>
+                    <Text style={[styles.monthlyPriceLabel, { color: colors.textSecondary }]}>R$ {monthlyPrice.toFixed(2)}/mês</Text>
+                  </View>
+                </View>
+
+                <View style={[styles.consultationsBadge, { backgroundColor: `${colors.primary}20` }]}>
+                  <Ionicons name="calendar" size={14} color={colors.primary} />
+                  <Text style={[styles.consultationsText, { color: colors.primary }]}>{plan.consultations}</Text>
+                </View>
+
+                <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+                <View style={styles.featuresSection}>
+                  <Text style={[styles.featuresTitle, { color: colors.text }]}>O que está incluído:</Text>
+                  <View style={styles.featuresList}>
+                    {plan.features.map((feature, index) => (
+                      <View key={index} style={styles.featureItem}>
+                        <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                        <Text style={[styles.featureText, { color: colors.text }]}>{feature}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+
+                <Pressable
                   style={[
-                    styles.selectButtonText,
+                    styles.selectButton,
                     {
-                      color: plan.popular ? '#ffffff' : colors.primary,
+                      backgroundColor: plan.popular ? colors.primary : colors.card,
+                      borderColor: colors.primary,
+                      borderWidth: plan.popular ? 0 : 1,
+                      opacity: isProfessionalLoading || (!defaultProfessional && !user?.professionalId) ? 0.6 : 1,
                     },
                   ]}
+                  disabled={isProfessionalLoading || (!defaultProfessional && !user?.professionalId)}
+                  onPress={() => {
+                    console.log('🔘 BUTTON CLICKED for plan:', plan.name);
+                    handleSelectPlan(plan);
+                  }}
                 >
-                  Contratar Plano
-                </Text>
-                <Ionicons
-                  name="arrow-forward"
-                  size={16}
-                  color={plan.popular ? '#ffffff' : colors.primary}
-                />
-              </Pressable>
-            </View>
-          );
-        })}
-      </View>
+                  <Text
+                    style={[
+                      styles.selectButtonText,
+                      {
+                        color: plan.popular ? '#ffffff' : colors.primary,
+                      },
+                    ]}
+                  >
+                    Contratar Plano
+                  </Text>
+                  <Ionicons
+                    name="arrow-forward"
+                    size={16}
+                    color={plan.popular ? '#ffffff' : colors.primary}
+                  />
+                </Pressable>
+              </View>
+            );
+          })}
+        </View>
 
-      {/* Modal de Confirmação Customizado */}
+        {/* Card de Informações */}
+        <View style={[styles.infoCard, { backgroundColor: colors.cardHover, borderColor: colors.border, borderWidth: 1 }]}>
+          <View style={styles.infoHeader}>
+            <Ionicons name="information-circle" size={24} color={colors.primary} />
+            <Text style={[styles.infoTitle, { color: colors.text }]}>Dúvidas?</Text>
+          </View>
+          <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+            Você pode mudar de plano a qualquer momento. Sem contratos de longa duração ou cobranças ocultas.
+          </Text>
+        </View>
+      </ScrollView>
+      {console.log('📊 Modal state:', { confirmVisible, confirmPlan: confirmPlan?.name, paymentModalVisible })}
       {confirmVisible && (
         <View style={styles.modalOverlay}>
           <View style={[styles.modalDialog, { backgroundColor: colors.containerBg, borderColor: colors.border }]}>
@@ -343,6 +437,24 @@ export default function PlansScreen({ navigation }) {
             <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
               {confirmPlan ? getConfirmMessage(confirmPlan, confirmPlan.price, confirmPlan.periodLabel) : 'Carregando...'}
             </Text>
+            <View style={[styles.paymentMethodsContainer, { borderColor: colors.border }]}>
+              <Text style={[styles.paymentMethodsTitle, { color: colors.text }]}>Forma de pagamento</Text>
+              <View style={styles.paymentMethodsList}>
+                {paymentMethods.map((method) => (
+                  <Pressable
+                    key={method.id}
+                    style={[
+                      styles.paymentMethodItem,
+                      { backgroundColor: colors.card },
+                      paymentMethod === method.id && { borderColor: colors.primary, backgroundColor: colors.cardHover },
+                    ]}
+                    onPress={() => setPaymentMethod(method.id)}
+                  >
+                    <Text style={[styles.paymentMethodText, { color: paymentMethod === method.id ? colors.primary : colors.text }]}>{method.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
             <View style={styles.modalButtons}>
               <Pressable
                 style={[styles.modalButton, styles.modalCancel, { borderColor: colors.border }]}
@@ -360,18 +472,33 @@ export default function PlansScreen({ navigation }) {
           </View>
         </View>
       )}
-
-      {/* Card de Informações */}
-      <View style={[styles.infoCard, { backgroundColor: colors.cardHover, borderColor: colors.border, borderWidth: 1 }]}>
-        <View style={styles.infoHeader}>
-          <Ionicons name="information-circle" size={24} color={colors.primary} />
-          <Text style={[styles.infoTitle, { color: colors.text }]}>Dúvidas?</Text>
+      {paymentModalVisible && paymentResult && (
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalDialog, { backgroundColor: colors.containerBg, borderColor: colors.border }]}> 
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Pagamento PIX gerado</Text>
+            <Text style={[styles.modalMessage, { color: colors.textSecondary }]}> 
+              {paymentResult.message || 'Escaneie o QR Code abaixo para efetuar o pagamento. A ativação será concluída automaticamente após a confirmação.'}
+            </Text>
+            {paymentResult.qrCodeUrl ? (
+              <Image source={{ uri: paymentResult.qrCodeUrl }} style={styles.qrCodeImage} />
+            ) : (
+              <ScrollView style={styles.qrCodeTextContainer}>
+                <Text style={[styles.qrCodeText, { color: colors.text }]}>{paymentResult.qrCodeData}</Text>
+              </ScrollView>
+            )}
+            <Text style={[styles.paymentInfoText, { color: colors.textSecondary }]}>Pagamento expira em: {paymentResult.expiresAt ? new Date(paymentResult.expiresAt).toLocaleString() : '—'}</Text>
+            <View style={styles.modalButtons}>
+              <Pressable
+                style={[styles.modalButton, styles.modalConfirm, { backgroundColor: colors.primary }]}
+                onPress={() => { setPaymentModalVisible(false); setPaymentResult(null); setConfirmPlan(null); }}
+              >
+                <Text style={[styles.modalButtonText, { color: '#ffffff' }]}>Fechar</Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
-        <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-          Você pode mudar de plano a qualquer momento. Sem contratos de longa duração ou cobranças ocultas.
-        </Text>
-      </View>
-    </ScrollView>
+      )}
+    </View>
   );
 }
 
@@ -563,8 +690,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  modalOverlay: {
+  innerScrollView: {
     flex: 1,
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
     backgroundColor: 'rgba(0, 0, 0, 0.35)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -572,6 +707,7 @@ const styles = StyleSheet.create({
   },
   modalDialog: {
     width: '100%',
+    maxWidth: 500,
     borderRadius: 20,
     borderWidth: 1,
     padding: 24,
@@ -589,6 +725,60 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 24,
+  },
+  paymentInfoText: {
+    fontSize: 12,
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  qrCodeImage: {
+    width: 240,
+    height: 240,
+    alignSelf: 'center',
+    marginVertical: 12,
+    borderRadius: 16,
+  },
+  qrCodeTextContainer: {
+    maxHeight: 220,
+    padding: 14,
+    backgroundColor: '#00000005',
+    borderRadius: 12,
+    marginVertical: 12,
+  },
+  qrCodeText: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  paymentMethodsContainer: {
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  paymentMethodsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  paymentMethodsList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  paymentMethodItem: {
+    flex: 1,
+    minWidth: 140,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  paymentMethodText: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   modalButtons: {
     flexDirection: 'row',

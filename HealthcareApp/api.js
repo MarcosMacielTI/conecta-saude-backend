@@ -6,7 +6,8 @@ const expoExtra = Constants?.expoConfig?.extra || Constants?.manifest?.extra || 
 // ⚠️ IP LOCAL: 10.0.0.172 (obtido via ipconfig)
 const apiUrl = expoExtra?.API_URL || process.env.API_URL || 'http://10.0.0.172:3000';
 const BASE_URL = apiUrl.replace(/\/+$/, '');
-const API_BASE_URL = `${BASE_URL}/api`;
+export const API_BASE_URL = `${BASE_URL}/api`;
+export const BASE_API_URL = BASE_URL;
 
 const api = axios.create({
     baseURL: API_BASE_URL,
@@ -69,4 +70,18 @@ export const subscriptionsAPI = {
     getActive: () => api.get('/subscriptions/active'),
     updatePlan: (id, plan) => api.put(`/subscriptions/${id}`, { plan }),
     cancel: (id) => api.delete(`/subscriptions/${id}`),
+};
+
+export const paymentsAPI = {
+    createPix: (data) => api.post('/payments/create-pix', data),
+    createCard: (data) => api.post('/payments/create-card', data),
+    getStatus: (paymentId) => api.get(`/payments/${paymentId}`),
+    cancel: (paymentId, reason) => api.post(`/payments/${paymentId}/cancel`, { reason }),
+    getHistory: () => api.get('/payments'),
+};
+
+export const appointmentsAPI = {
+    create: (data) => api.post('/appointments', data),
+    getAll: () => api.get('/appointments'),
+    updateStatus: (id, status) => api.put(`/appointments/${id}`, { status }),
 };

@@ -1,19 +1,30 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, StatusBar } from 'react-native';
+import React, { useState, useContext } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View, StatusBar, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import BackButton from './src/components/BackButton';
 import { useTheme } from './src/context/ThemeContext';
+import { AuthContext } from './src/context/AuthContext';
 
 export default function VideoScreen({ navigation, route }) {
   const { colors } = useTheme();
-  const patient = route?.params?.patient;
-  const targetName = patient?.name || patient?.nome || patient?.patient || 'Profissional';
+  const { user } = useContext(AuthContext);
+  const appointment = route?.params?.appointment;
+
+  const targetName = user?.role === 'professional' 
+    ? appointment?.patientId?.name || 'Paciente'
+    : appointment?.professionalId?.name || 'Profissional';
 
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [inCall, setInCall] = useState(false);
 
+  const canStartCall = user?.role === 'professional' && appointment?.status === 'em_andamento';
+
   const handleStartCall = () => {
+    if (!canStartCall) {
+      Alert.alert('Não autorizado', 'Apenas profissionais podem iniciar chamadas, e apenas em horários agendados.');
+      return;
+    }
     setInCall(true);
   };
 
@@ -53,12 +64,16 @@ export default function VideoScreen({ navigation, route }) {
                 <Text style={styles.logoText}>Conecta Saúde</Text>
               </View>
               <Text style={styles.waitingText}>
-                {patient
-                  ? `Pronto para chamar ${targetName}`
-                  : 'Nenhum participante selecionado'}
+                {appointment
+                  ? user?.role === 'professional'
+                    ? `Pronto para chamar ${targetName}`
+                    : `Aguardando ${targetName} iniciar a chamada`
+                  : 'Nenhum agendamento selecionado'}
               </Text>
               <Text style={styles.waitingSubText}>
-                Pressione "Iniciar Chamada" quando estiver pronto
+                {user?.role === 'professional'
+                  ? 'Pressione "Iniciar Chamada" quando estiver pronto'
+                  : 'O profissional iniciará a chamada no horário agendado'}
               </Text>
             </View>
           )}
@@ -120,12 +135,14 @@ export default function VideoScreen({ navigation, route }) {
           </View>
         ) : (
           <TouchableOpacity
-            style={[styles.startCallBtn, { backgroundColor: colors.primary }]}
+            style={[styles.startCallBtn, { backgroundColor: canStartCall ? colors.primary : '#666' }]}
             onPress={handleStartCall}
-            disabled={!patient}
+            disabled={!canStartCall}
           >
             <Ionicons name="videocam" size={24} color="#fff" />
-            <Text style={styles.startCallText}>Iniciar Chamada</Text>
+            <Text style={styles.startCallText}>
+              {user?.role === 'professional' ? 'Iniciar Chamada' : 'Aguardando...'}
+            </Text>
           </TouchableOpacity>
         )}
       </View>

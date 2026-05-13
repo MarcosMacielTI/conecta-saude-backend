@@ -6,6 +6,11 @@ const subscriptionSchema = new mongoose.Schema({
     plan: { type: String, required: true },
     duration: { type: String, required: true }, // e.g., 'mensal'
     price: { type: Number, required: true },
+    paymentMethod: {
+        type: String,
+        enum: ['pix', 'credit_card', 'debit_card', 'boleto'],
+        default: 'pix',
+    },
     status: { type: String, enum: ['active', 'inactive'], default: 'active' },
     createdAt: { type: Date, default: Date.now },
 });

@@ -22,7 +22,7 @@ const verifyToken = (req, res, next) => {
 
 // Subscribe
 router.post('/', verifyToken, async (req, res) => {
-    const { professionalId, plan, duration, price } = req.body;
+    const { professionalId, plan, duration, price, paymentMethod } = req.body;
     try {
         const planValue = String(plan || '').trim().toLowerCase();
         const planLabels = {
@@ -37,6 +37,8 @@ router.post('/', verifyToken, async (req, res) => {
         };
         const activePlan = planLabels[planValue] || plan;
         const consultations = planValue === 'basico' || planValue === 'básico' || planValue === 'basic' ? 1 : planValue === 'intermediario' || planValue === 'intermediário' || planValue === 'intermediate' ? 2 : 3;
+        const validPaymentMethods = ['pix', 'credit_card', 'debit_card', 'boleto'];
+        const selectedPaymentMethod = validPaymentMethods.includes(paymentMethod) ? paymentMethod : 'pix';
 
         const subscription = new Subscription({
             user: req.user.id,
@@ -44,6 +46,7 @@ router.post('/', verifyToken, async (req, res) => {
             plan: activePlan,
             duration,
             price,
+            paymentMethod: selectedPaymentMethod,
         });
         await subscription.save();
 

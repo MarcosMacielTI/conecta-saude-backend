@@ -326,7 +326,7 @@ function ProfessionalTabNavigator() {
 
 function SearchScreen({ navigation }) {
   const { colors } = useTheme();
-  const { user } = useContext(AuthContext);
+  const { user, updateUser } = useContext(AuthContext);
   const [professionals, setProfessionals] = useState([]);
   const [filteredProfessionals, setFilteredProfessionals] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -368,6 +368,9 @@ function SearchScreen({ navigation }) {
       setConnectingId(professionalId);
       await connectionsAPI.connect(professionalId);
       Alert.alert('Sucesso', 'Profissional vinculado com sucesso.');
+      if (updateUser) {
+        updateUser({ ...user, professionalId });
+      }
     } catch (error) {
       console.error('Erro ao conectar com profissional:', error);
       Alert.alert('Erro', error.response?.data?.error || 'Não foi possível conectar com este profissional.');

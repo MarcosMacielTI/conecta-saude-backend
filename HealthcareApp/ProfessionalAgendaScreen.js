@@ -1,11 +1,12 @@
 import { SafeAreaView } from 'react-native-safe-area-context';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View, Text, StyleSheet, ScrollView, Pressable, Alert, Modal, TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from './src/hooks/useTheme';
 import BackButton from './src/components/BackButton';
+import { appointmentsAPI } from './api';
 
 // Tela de Horários (modal ou tela separada)
 function HorariosModal({ visible, onClose, colors }) {
@@ -186,21 +187,31 @@ function ProfessionalAgendaScreen({ navigation }) {
     const [showHorarios, setShowHorarios] = useState(false);
     const [showProntuario, setShowProntuario] = useState(false);
     const [showNotificacao, setShowNotificacao] = useState(false);
+    const [appointments, setAppointments] = useState([]);
+    const [loading, setLoading] = useState(true);
 
-    // Mock de consultas por dia (chave: "YYYY-MM-DD")
-    const appointments = {
-        [`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-10`]: [
-            { id: 1, patient: 'João Silva', time: '09:00', type: 'Consulta', status: 'Confirmado' },
-            { id: 2, patient: 'Maria Santos', time: '10:30', type: 'Follow-up', status: 'Confirmado' },
-        ],
-        [`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-15`]: [
-            { id: 3, patient: 'Pedro Oliveira', time: '14:00', type: 'Avaliação', status: 'Pendente' },
-        ],
-        [`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-20`]: [
-            { id: 4, patient: 'Ana Costa', time: '11:00', type: 'Consulta', status: 'Confirmado' },
-            { id: 5, patient: 'Carlos Mendes', time: '15:30', type: 'Consulta', status: 'Confirmado' },
-        ],
-    };
+    useEffect(() => {
+        const fetchAppointments = async () => {
+            try {
+                const response = await appointmentsAPI.getAll();
+                setAppointments(response.data);
+            } catch (error) {
+                console.error('Error fetching appointments:', error);
+                Alert.alert('Erro', 'Não foi possível carregar os agendamentos.');
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchAppointments();
+    }, []);
+
+    // Group appointments by date
+    const appointmentsByDate = appointments.reduce((acc, apt) => {
+        const dateKey = apt.date;
+        if (!acc[dateKey]) acc[dateKey] = [];
+        acc[dateKey].push(apt);
+        return acc;
+    }, {});
 
     const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
     const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
@@ -292,13 +303,13 @@ function ProfessionalAgendaScreen({ navigation }) {
     const selectedKey = selectedDay
         ? `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`
         : null;
-    const dayAppointments = selectedKey ? appointments[selectedKey] || [] : [];
+    const dayAppointments = selectedKey ? appointmentsByDate[selectedKey] || [] : [];
     const selectedAppointment = dayAppointments[0] || null; // Para ações modais
 
     const hasAppointment = (day) => {
         if (!day) return false;
         const key = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        return !!appointments[key];
+        return !!appointmentsByDate[key];
     };
 
     return (
@@ -394,22 +405,22 @@ function ProfessionalAgendaScreen({ navigation }) {
                         {dayAppointments.length > 0 ? (
                             dayAppointments.map((apt) => (
                                 <Pressable
-                                    key={apt.id}
-                                    onPress={() => navigation.navigate('Video', { patient: apt })}
+                                    key={apt._id}
+                                    onPress={() => navigation.navigate('Video', { appointment: apt })}
                                     style={[styles.appointmentCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
                                 >
                                     <View style={[styles.timeBox, { backgroundColor: `${colors.primary}15` }]}>
-                                        <Text style={[styles.aptTime, { color: colors.primary }]}>{apt.time}</Text>
+                                        <Text style={[styles.aptTime, { color: colors.primary }]}>{apt.startTime}</Text>
                                     </View>
                                     <View style={styles.aptInfo}>
-                                        <Text style={[styles.aptPatient, { color: colors.text }]}>{apt.patient}</Text>
-                                        <Text style={[styles.aptType, { color: colors.textSecondary }]}>{apt.type}</Text>
+                                        <Text style={[styles.aptPatient, { color: colors.text }]}>{apt.patientId?.name || 'Paciente'}</Text>
+                                        <Text style={[styles.aptType, { color: colors.textSecondary }]}>Consulta</Text>
                                     </View>
                                     <View style={[styles.statusBadge, {
-                                        backgroundColor: apt.status === 'Confirmado' ? `${colors.success}20` : `${colors.warning}20`,
+                                        backgroundColor: apt.status === 'agendada' ? `${colors.warning}20` : apt.status === 'em_andamento' ? `${colors.primary}20` : `${colors.success}20`,
                                     }]}>
                                         <Text style={[styles.statusText, {
-                                            color: apt.status === 'Confirmado' ? colors.success : colors.warning,
+                                            color: apt.status === 'agendada' ? colors.warning : apt.status === 'em_andamento' ? colors.primary : colors.success,
                                         }]}>
                                             {apt.status}
                                         </Text>
@@ -430,18 +441,47 @@ function ProfessionalAgendaScreen({ navigation }) {
                         <View style={styles.actionGrid}>
                             <Pressable
                                 style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
-                                onPress={() => {
+                                onPress={async () => {
                                     if (dayAppointments.length === 0) {
                                         Alert.alert('Sem consultas', 'Não há consultas agendadas neste dia.');
                                         return;
                                     }
-                                    navigation.navigate('Video', { patient: selectedAppointment });
+                                    try {
+                                        await appointmentsAPI.updateStatus(selectedAppointment._id, 'em_andamento');
+                                        navigation.navigate('Video', { appointment: selectedAppointment });
+                                    } catch (error) {
+                                        Alert.alert('Erro', 'Não foi possível iniciar a consulta.');
+                                    }
                                 }}
                             >
                                 <View style={[styles.actionIconBg, { backgroundColor: `${colors.primary}15` }]}>
                                     <Ionicons name="videocam" size={22} color={colors.primary} />
                                 </View>
                                 <Text style={[styles.actionText, { color: colors.text }]}>Iniciar Consulta</Text>
+                            </Pressable>
+
+                            <Pressable
+                                style={[styles.actionCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+                                onPress={async () => {
+                                    if (dayAppointments.length === 0) {
+                                        Alert.alert('Sem consultas', 'Não há consultas agendadas neste dia.');
+                                        return;
+                                    }
+                                    try {
+                                        await appointmentsAPI.updateStatus(selectedAppointment._id, 'finalizada');
+                                        Alert.alert('Consulta finalizada', 'A consulta foi marcada como finalizada.');
+                                        // Refresh appointments
+                                        const response = await appointmentsAPI.getAll();
+                                        setAppointments(response.data);
+                                    } catch (error) {
+                                        Alert.alert('Erro', 'Não foi possível finalizar a consulta.');
+                                    }
+                                }}
+                            >
+                                <View style={[styles.actionIconBg, { backgroundColor: `${colors.success}15` }]}>
+                                    <Ionicons name="checkmark-done" size={22} color={colors.success} />
+                                </View>
+                                <Text style={[styles.actionText, { color: colors.text }]}>Finalizar Consulta</Text>
                             </Pressable>
 
                             <Pressable

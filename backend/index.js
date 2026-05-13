@@ -2,17 +2,51 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const http = require('http');
+const socketIo = require('socket.io');
+const helmet = require('helmet');
 
 dotenv.config();
 
 const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
+
+// Security Middleware
+const {
+    apiLimiter,
+    authLimiter,
+    captureRequestInfo,
+    checkSuspiciousActivity,
+    validateSensitiveData,
+    sanitizeInput,
+    enforceHTTPS
+} = require('./middlewares/securityMiddleware');
+
+// Apply Helmet for security headers
+app.use(helmet());
+
+// Apply security middleware
+app.use(enforceHTTPS);
+app.use(captureRequestInfo);
+app.use(sanitizeInput);
+
 app.use(cors({
     origin: true,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Prevent large payloads
+
+// Rate limiting
+app.use('/api/', apiLimiter);
+app.use('/api/auth/', authLimiter);
 
 // Connect to MongoDB (use local or Atlas)
 const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/conecta_saude';
@@ -22,12 +56,19 @@ mongoose.connect(mongoUri)
 
 const Professional = require('./models/Professional');
 const User = require('./models/User');
+const Payment = require('./models/Payment');
+const Repasse = require('./models/Repasse');
+const AuditLog = require('./models/AuditLog');
 
 // Routes
-app.use('/api/auth', require('./routes/auth'));
+app.use('/api/auth', authLimiter, require('./routes/auth'));
 app.use('/api/professionals', require('./routes/professionals'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/subscriptions', require('./routes/subscriptions'));
+app.use('/api/appointments', require('./routes/appointments'));
+app.use('/api/payments', require('./routes/payments'));
+app.use('/api/repassess', require('./routes/repassess'));
+app.use('/api/audit', require('./routes/audit'));
 app.use('/api', require('./routes/connections'));
 app.use('/api', require('./routes/messages'));
 
@@ -67,5 +108,155 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Socket.IO for real-time chat with plan verification
+const jwt = require('jsonwebtoken');
+
+io.on('connection', (socket) => {
+    console.log('User connected:', socket.id);
+
+    // Authenticate user via token
+    const token = socket.handshake.auth?.token;
+    let userId = null;
+    let userRole = null;
+
+    if (token) {
+        try {
+            const verified = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+            userId = verified.id;
+        } catch (err) {
+            console.error('Socket auth error:', err.message);
+        }
+    }
+
+    // Join a chat room (for patient-professional communication)
+    socket.on('joinChat', async (chatId) => {
+        if (!userId) {
+            socket.emit('error', { message: 'Authentication required' });
+            return;
+        }
+
+        try {
+            const user = await User.findById(userId);
+            if (!user) {
+                socket.emit('error', { message: 'User not found' });
+                return;
+            }
+
+            userRole = user.role;
+
+            // Check if patient has active plan (but professionals can always chat)
+            if (user.role === 'patient' && !user.plan) {
+                socket.emit('error', { 
+                    message: 'Active plan required to chat. Please purchase a plan.',
+                    code: 'NO_PLAN'
+                });
+                return;
+            }
+
+            socket.join(chatId);
+            socket.userData = { userId, userRole, userName: user.name };
+            
+            console.log(`User ${user.name} (${userId}) joined chat ${chatId}`);
+            
+            // Notify others
+            io.to(chatId).emit('userJoined', {
+                userId,
+                userName: user.name,
+                userRole,
+                timestamp: new Date().toISOString()
+            });
+        } catch (error) {
+            console.error('Error joining chat:', error);
+            socket.emit('error', { message: 'Error joining chat' });
+        }
+    });
+
+    // Handle sending message
+    socket.on('sendMessage', async (data) => {
+        if (!userId || !socket.userData) {
+            socket.emit('error', { message: 'Not authenticated or not in chat' });
+            return;
+        }
+
+        const { chatId, text } = data;
+        
+        if (!text || text.trim().length === 0) {
+            socket.emit('error', { message: 'Message cannot be empty' });
+            return;
+        }
+
+        try {
+            const user = await User.findById(userId);
+            
+            // Verify patient still has active plan
+            if (user.role === 'patient' && !user.plan) {
+                socket.emit('error', { 
+                    message: 'Your plan has expired. Please renew to continue chatting.',
+                    code: 'PLAN_EXPIRED'
+                });
+                return;
+            }
+
+            const Message = require('./models/Message');
+            const message = new Message({
+                connectionId: chatId,
+                senderId: userId,
+                senderType: user.role,
+                content: text.trim(),
+            });
+            await message.save();
+
+            // Emit to chat room
+            io.to(chatId).emit('receiveMessage', {
+                _id: message._id,
+                senderId: userId,
+                senderType: user.role,
+                senderName: user.name,
+                content: text.trim(),
+                timestamp: message.timestamp,
+            });
+        } catch (error) {
+            console.error('Error saving message:', error);
+            socket.emit('error', { message: 'Error sending message' });
+        }
+    });
+
+    // Handle typing indicator
+    socket.on('typing', (data) => {
+        const { chatId } = data;
+        socket.broadcast.to(chatId).emit('userTyping', {
+            userId,
+            userName: socket.userData?.userName,
+            isTyping: true
+        });
+    });
+
+    // Handle stop typing
+    socket.on('stopTyping', (data) => {
+        const { chatId } = data;
+        socket.broadcast.to(chatId).emit('userTyping', {
+            userId,
+            userName: socket.userData?.userName,
+            isTyping: false
+        });
+    });
+
+    // Leave chat room
+    socket.on('leaveChat', (chatId) => {
+        socket.leave(chatId);
+        if (socket.userData) {
+            io.to(chatId).emit('userLeft', {
+                userId,
+                userName: socket.userData.userName,
+                timestamp: new Date().toISOString()
+            });
+        }
+    });
+
+    socket.on('disconnect', () => {
+        console.log('User disconnected:', socket.id);
+    });
+});
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

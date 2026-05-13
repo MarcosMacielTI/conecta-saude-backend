@@ -4,10 +4,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from './src/context/AuthContext';
 import { useThemeColors } from './src/hooks/useTheme';
 import BackButton from './src/components/BackButton';
-import { professionalsAPI, messagesAPI, connectionsAPI } from './api';
+import { professionalsAPI, messagesAPI, connectionsAPI, BASE_API_URL } from './api';
 import { sendLocalNotification, requestNotificationPermissions } from './src/services/notifications';
 import { EmojiPicker } from './src/components/EmojiPicker';
 import { AttachmentPicker } from './src/components/AttachmentPicker';
+import { io } from 'socket.io-client';
 
 export default function ChatScreen({ navigation, route }) {
   const { user } = useContext(AuthContext);
@@ -41,11 +42,48 @@ export default function ChatScreen({ navigation, route }) {
 
   const flatListRef = useRef(null);
   const pollIntervalRef = useRef(null);
+  const socketRef = useRef(null);
 
   // Initialize notifications
   useEffect(() => {
     requestNotificationPermissions();
   }, []);
+
+  // Socket.IO setup
+  useEffect(() => {
+    socketRef.current = io(BASE_API_URL);
+
+    socketRef.current.on('connect', () => {
+      console.log('Connected to Socket.IO');
+    });
+
+    socketRef.current.on('receiveMessage', (message) => {
+      if (selectedConversation && message.senderId !== user.id) {
+        const formattedMessage = {
+          _id: message._id,
+          text: message.content,
+          sender: message.senderType === 'patient' ? 'user' : 'professional',
+          timestamp: new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        };
+        setMessages(prev => [...prev, formattedMessage]);
+        // Scroll to bottom
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+    });
+
+    return () => {
+      socketRef.current?.disconnect();
+    };
+  }, [user.id, selectedConversation]);
+
+  // Join chat room when conversation changes
+  useEffect(() => {
+    if (selectedConversation && conversation?._id) {
+      socketRef.current?.emit('joinChat', conversation._id);
+    }
+  }, [selectedConversation, conversation]);
 
   // Load conversations on mount or when user role changes
   useEffect(() => {
@@ -112,7 +150,13 @@ export default function ChatScreen({ navigation, route }) {
         const connectionId = selectedConversation.connectionId;
 
         if (connectionId) {
-          setConversation({ _id: connectionId });
+          // Set conversation with necessary IDs
+          setConversation({
+            _id: connectionId,
+            professionalId: selectedConversation.professionalId,
+            patientId: selectedConversation.patientId,
+          });
+
           // Load messages for this connection
           const messagesResponse = await messagesAPI.getMessages(connectionId);
           const formattedMessages = (messagesResponse.data || []).map(msg => ({
@@ -137,36 +181,6 @@ export default function ChatScreen({ navigation, route }) {
     };
 
     loadMessages();
-
-    // Setup polling for new messages
-    if (selectedConversation.connectionId) {
-      const pollMessages = async () => {
-        try {
-          setPollLoading(true);
-          const messagesResponse = await messagesAPI.getMessages(selectedConversation.connectionId);
-          const formattedMessages = (messagesResponse.data || []).map(msg => ({
-            _id: msg._id,
-            text: msg.content,
-            sender: msg.senderType === 'patient' ? 'user' : 'professional',
-            timestamp: new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          }));
-          setMessages(formattedMessages);
-        } catch (error) {
-          console.error('Erro ao fazer polling de mensagens:', error);
-        } finally {
-          setPollLoading(false);
-        }
-      };
-
-      // Poll every 3 seconds
-      pollIntervalRef.current = setInterval(pollMessages, 3000);
-
-      return () => {
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-        }
-      };
-    }
   }, [selectedConversation]);
 
   const handleEmojiSelect = (emoji) => {
@@ -188,32 +202,46 @@ export default function ChatScreen({ navigation, route }) {
       return;
     }
 
+    // Check plan limits for basic plan
+    if (user?.role === 'patient' && user?.plan === 'Básico') {
+      // For basic plan, limit messages (this is a simple check, in production you'd track message count)
+      const recentMessages = messages.filter(msg => msg.sender === 'user').length;
+      if (recentMessages >= 10) { // Arbitrary limit for demo
+        Alert.alert('Limite atingido', 'Seu plano básico permite apenas mensagens limitadas. Atualize para um plano superior.');
+        return;
+      }
+    }
+
     try {
       setLoading(true);
 
-      // Send message
-      await messagesAPI.sendMessage(inputText.trim(), conversation._id);
+      const messageData = {
+        chatId: conversation._id,
+        senderId: user.id,
+        receiverId: user.role === 'patient' ? conversation.professionalId : conversation.patientId,
+        text: inputText.trim(),
+      };
+
+      // Send via Socket.IO
+      socketRef.current?.emit('sendMessage', messageData);
+
+      // Add to local messages immediately
+      const newMessage = {
+        _id: Date.now().toString(),
+        text: inputText.trim(),
+        sender: 'user',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages(prev => [...prev, newMessage]);
 
       // Clear input and attachments
       setInputText('');
       setAttachments([]);
 
-      // Refresh messages after a short delay
-      setTimeout(async () => {
-        try {
-          const messagesResponse = await messagesAPI.getMessages(conversation._id);
-          const formattedMessages = (messagesResponse.data || []).map(msg => ({
-            _id: msg._id,
-            text: msg.content,
-            sender: msg.senderType === 'patient' ? 'user' : 'professional',
-            timestamp: new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          }));
-          setMessages(formattedMessages);
-          flatListRef.current?.scrollToEnd({ animated: true });
-        } catch (err) {
-          console.error('Erro ao atualizar mensagens:', err);
-        }
-      }, 500);
+      // Scroll to bottom
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
 
       // Send local notification
       if (selectedConversation) {
