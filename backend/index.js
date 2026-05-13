@@ -50,15 +50,35 @@ app.use('/api/auth/', authLimiter);
 
 // Connect to MongoDB (use local or Atlas)
 const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/conecta_saude';
-mongoose.connect(mongoUri)
-    .then(() => console.log(`MongoDB connected to ${mongoUri}`))
-    .catch(err => console.log(err));
+console.log('🔗 Connecting to MongoDB:', mongoUri.split('@')[1] || mongoUri);
+
+mongoose.connect(mongoUri, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+})
+    .then(() => console.log('✅ MongoDB connected successfully'))
+    .catch(err => {
+        console.error('❌ MongoDB connection error:', err.message);
+        process.exit(1);
+    });
 
 const Professional = require('./models/Professional');
 const User = require('./models/User');
 const Payment = require('./models/Payment');
 const Repasse = require('./models/Repasse');
 const AuditLog = require('./models/AuditLog');
+
+// Health check endpoint (for Railway)
+app.get('/api/health', (req, res) => {
+    res.json({ 
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+        uptime: process.uptime()
+    });
+});
 
 // Routes
 app.use('/api/auth', authLimiter, require('./routes/auth'));
@@ -259,4 +279,31 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+// Graceful error handling
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+    process.exit(1);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('❌ Uncaught Exception:', error);
+    process.exit(1);
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ Server running on port ${PORT}`);
+    console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('⚠️ SIGTERM received, shutting down gracefully...');
+    server.close(() => {
+        console.log('✅ Server closed');
+        mongoose.connection.close(false, () => {
+            console.log('✅ MongoDB connection closed');
+            process.exit(0);
+        });
+    });
+});
