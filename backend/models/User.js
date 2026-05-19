@@ -6,6 +6,8 @@ const userSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true, lowercase: true },
     password: { type: String, required: false },
     googleId: { type: String, required: false },
+    resetPasswordToken: { type: String },
+    resetPasswordExpires: { type: Date },
 
     // CPF - ENCRYPTED
     cpf: {
@@ -98,6 +100,8 @@ userSchema.methods.toJSON = function () {
     delete obj.cpf;
     delete obj.cpfHash;
     delete obj.password;
+    delete obj.resetPasswordToken;
+    delete obj.resetPasswordExpires;
     delete obj.loginAttempts;
     delete obj.isBlocked;
 

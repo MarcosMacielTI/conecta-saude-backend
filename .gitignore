@@ -1,1 +1,18 @@
-node_modules
+# Dependencies
+node_modules/
+
+# Environment variables (NEVER commit credentials)
+.env
+.env.local
+.env.production.local
+.env.test.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log

@@ -39,6 +39,8 @@ export const authService = {
   register: (data) => api.post('/auth/register', data),
   login: (email, password) => api.post('/auth/login', { email, password }),
   googleAuth: (idToken) => api.post('/auth/google/mobile', { idToken }),
+  requestPasswordReset: (email) => api.post('/auth/password-reset-request', { email }),
+  resetPassword: (token, password) => api.post('/auth/password-reset', { token, password }),
 };
 
 export default api;

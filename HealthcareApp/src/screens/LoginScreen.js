@@ -24,6 +24,12 @@ export default function LoginScreen({ navigation }) {
 
   console.log('Google redirect URI (add this to Google Console):', redirectUri);
 
+  useEffect(() => {
+    if (redirectUri) {
+      Alert.alert('Google redirect URI', redirectUri);
+    }
+  }, [redirectUri]);
+
   const [, response, promptAsync] = Google.useAuthRequest({
     expoClientId: EXPO_CLIENT_ID,
     iosClientId: IOS_CLIENT_ID,
@@ -200,6 +206,10 @@ export default function LoginScreen({ navigation }) {
               </View>
             </View>
 
+            <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
+              <Text style={styles.forgotPasswordText}>Esqueceu a senha?</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.loginButton, isLoading && styles.disabledButton]}
               onPress={handleLogin}
@@ -369,6 +379,13 @@ const styles = StyleSheet.create({
   },
   registerLink: {
     color: '#2563eb',
+    fontWeight: '700',
+  },
+  forgotPasswordText: {
+    color: '#2563eb',
+    textAlign: 'right',
+    marginBottom: 18,
+    fontSize: 14,
     fontWeight: '700',
   },
   biometricButton: {

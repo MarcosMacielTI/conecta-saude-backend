@@ -70,7 +70,7 @@ const AuditLog = require('./models/AuditLog');
 
 // Health check endpoint (for Railway)
 app.get('/api/health', (req, res) => {
-    res.json({ 
+    res.json({
         status: 'ok',
         timestamp: new Date().toISOString(),
         mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
@@ -293,6 +293,14 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Server running on port ${PORT}`);
     console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
+
+// Check SMTP configuration and warn if missing
+const smtpConfigured = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
+if (!smtpConfigured) {
+    console.warn('⚠️ SMTP não configurado: configure SMTP_HOST, SMTP_USER e SMTP_PASS para envio de emails de redefinição de senha.');
+} else {
+    console.log('✉️ SMTP configurado (HOST:', process.env.SMTP_HOST, ')');
+}
 
 // Graceful shutdown
 process.on('SIGTERM', () => {

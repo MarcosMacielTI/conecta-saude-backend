@@ -2,8 +2,10 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const https = require('https');
+const crypto = require('crypto');
 const User = require('../models/User');
 const Professional = require('../models/Professional');
+const { sendPasswordResetEmail } = require('../services/emailService');
 
 const router = express.Router();
 
@@ -11,6 +13,8 @@ const router = express.Router();
 const generateToken = (user) => {
     return jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET || 'secret', { expiresIn: '1h' });
 };
+
+const generateResetToken = () => crypto.randomBytes(20).toString('hex');
 
 // Register - return token + user
 router.post('/register', async (req, res) => {
@@ -67,6 +71,61 @@ router.post('/register', async (req, res) => {
         });
     } catch (err) {
         res.status(400).json({ error: err.message });
+    }
+});
+
+// Password reset request
+router.post('/password-reset-request', async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    try {
+        const user = await User.findOne({ email });
+        if (user && user.password) {
+            const resetToken = generateResetToken();
+            user.resetPasswordToken = resetToken;
+            user.resetPasswordExpires = Date.now() + 60 * 60 * 1000; // 1 hour
+            await user.save();
+
+            const emailResult = await sendPasswordResetEmail({
+                to: user.email,
+                name: user.name,
+                token: resetToken,
+            });
+
+            if (!emailResult.success) {
+                return res.status(500).json({ error: emailResult.error || 'Falha ao enviar o email de redefinição' });
+            }
+        }
+
+        // Do not reveal whether the email exists.
+        return res.json({ message: 'Se o email existir, um link de redefinição foi enviado.' });
+    } catch (err) {
+        return res.status(400).json({ error: err.message });
+    }
+});
+
+// Reset password with token
+router.post('/password-reset', async (req, res) => {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ error: 'Token and password are required' });
+
+    try {
+        const user = await User.findOne({
+            resetPasswordToken: token,
+            resetPasswordExpires: { $gt: Date.now() },
+        });
+
+        if (!user) return res.status(400).json({ error: 'Invalid or expired reset token' });
+
+        user.password = await bcrypt.hash(password, 10);
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+        await user.save();
+
+        return res.json({ message: 'Password updated successfully' });
+    } catch (err) {
+        return res.status(400).json({ error: err.message });
     }
 });
 

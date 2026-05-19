@@ -205,6 +205,49 @@ typing            Indicador
    - URL: `https://seu-backend.com/api/payments/webhook`
    - Eventos: `payment.created`, `payment.updated`
 
+## ✉️ EMAIL / SMTP (Redefinição de senha)
+
+Para que o fluxo de "Esqueceu a senha?" envie um código/link por email, configure um provedor SMTP e adicione as variáveis no seu ambiente (Railway ou `.env`).
+
+Variáveis necessárias:
+
+```
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false    # true para 465
+SMTP_USER=seu_usuario_smtp
+SMTP_PASS=sua_senha_smtp
+EMAIL_FROM="Conecta Saude <no-reply@seudominio.com>"
+FRONTEND_URL=https://planodeassinatura-production.up.railway.app
+```
+
+Recomendações:
+- Não comite credenciais reais no repositório.
+- Para produção utilize SendGrid, Mailgun, Amazon SES ou outro provedor confiável.
+- Se usar Gmail, prefira `App Passwords` (contas Google com 2FA).
+
+Como testar localmente (após iniciar o servidor):
+
+- Solicitar geração de token (retornará mensagem genérica):
+
+```bash
+curl -X POST http://localhost:3000/api/auth/password-reset-request \
+  -H "Content-Type: application/json" \
+  -d '{"email":"usuario@teste.com"}'
+```
+
+- Após receber o email, use o token enviado para redefinir a senha:
+
+```bash
+curl -X POST http://localhost:3000/api/auth/password-reset \
+  -H "Content-Type: application/json" \
+  -d '{"token":"CODIGO_DO_EMAIL","password":"novaSenha123"}'
+```
+
+Se estiver em produção (Railway), use a URL do deployment no lugar de `localhost:3000`.
+
+Verificando logs no Railway: acesse a aba "Logs" do seu projeto para ver erros de envio de email (ex.: autenticação SMTP). Também é possível testar com ferramentas de captura de email como Mailtrap para desenvolvimento.
+
 ---
 
 ## 📦 DEPENDÊNCIAS

@@ -22,6 +22,7 @@ import { AuthProvider, AuthContext } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import BackButton from './src/components/BackButton';
 import RegisterScreen from './src/screens/RegisterScreen';
+import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -737,6 +738,7 @@ function AuthNavigator({ updateProfData }) {
         <>
           <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: 'Esqueceu a senha?' }} />
           <Stack.Screen name="Plans" component={PlansScreen} />
         </>
       )}
