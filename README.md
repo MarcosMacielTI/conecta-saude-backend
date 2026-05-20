@@ -448,3 +448,6 @@ Este projeto está sob a licença **MIT**. Veja o arquivo `LICENSE` para mais de
 - O frontend ainda não está integrado com o backend; o formulário de login é apenas UI.
 - Para produção, use HTTPS e configure CORS se necessário.</content>
 <parameter name="filePath">c:\Users\user\Projetos\8. Projetos com Asafe\App_Conecta_Saude\README.md
+
+
+Atualizando deploy
