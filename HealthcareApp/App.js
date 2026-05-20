@@ -1,5 +1,5 @@
 import { useState, createContext, useContext, useEffect } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View, TextInput, Image, FlatList, Switch } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View, TextInput, Image, FlatList, Switch } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -23,9 +23,25 @@ import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import BackButton from './src/components/BackButton';
 import RegisterScreen from './src/screens/RegisterScreen';
 import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
+import ResetPasswordScreen from './src/screens/ResetPasswordScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+
+const linking = {
+  prefixes: [
+    Platform.OS === 'web' ? window.location.origin : 'meusistema://',
+  ].filter(Boolean),
+  config: {
+    screens: {
+      Login: 'login',
+      Register: 'register',
+      ForgotPassword: 'forgot-password',
+      ResetPassword: 'reset-password',
+      Plans: 'plans',
+    },
+  },
+};
 
 const ProfContext = createContext();
 
@@ -690,7 +706,7 @@ export default function App() {
     <ThemeProvider>
       <AuthProvider>
         <ProfContext.Provider value={{ profData, setProfData }}>
-          <NavigationContainer>
+          <NavigationContainer linking={linking}>
             <AuthNavigator updateProfData={setProfData} />
             <StatusBar style="light" />
           </NavigationContainer>
@@ -739,6 +755,7 @@ function AuthNavigator({ updateProfData }) {
           <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Register" component={RegisterScreen} />
           <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: 'Esqueceu a senha?' }} />
+          <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ title: 'Redefinir senha' }} />
           <Stack.Screen name="Plans" component={PlansScreen} />
         </>
       )}

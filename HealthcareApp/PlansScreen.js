@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from './src/hooks/useTheme';
 import { AuthContext } from './src/context/AuthContext';
 import BackButton from './src/components/BackButton';
-import { subscriptionsAPI, professionalsAPI, paymentsAPI } from './api';
+import { subscriptionsAPI, professionalsAPI, paymentsAPI, authAPI } from './api';
 
 export default function PlansScreen({ navigation }) {
   const colors = useThemeColors();
@@ -17,6 +17,7 @@ export default function PlansScreen({ navigation }) {
   const [confirmPlan, setConfirmPlan] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('pix');
   const [paymentResult, setPaymentResult] = useState(null);
+  const [paymentStatus, setPaymentStatus] = useState(null);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
 
@@ -256,10 +257,45 @@ export default function PlansScreen({ navigation }) {
       });
 
       setPaymentResult(response.data);
+      setPaymentStatus(response.data.status || 'pending');
       setPaymentModalVisible(true);
     } catch (error) {
       console.error('Erro ao criar pagamento PIX:', error);
       Alert.alert('Erro', error.response?.data?.error || 'Não foi possível iniciar o pagamento PIX.');
+    } finally {
+      setIsPaymentProcessing(false);
+    }
+  };
+
+  const checkPaymentStatus = async () => {
+    if (!paymentResult?.paymentId) {
+      Alert.alert('Erro', 'Nenhum pagamento para verificar.');
+      return;
+    }
+
+    setIsPaymentProcessing(true);
+    try {
+      const statusResponse = await paymentsAPI.getStatus(paymentResult.paymentId);
+      const status = statusResponse.data?.status;
+      setPaymentStatus(status);
+
+      if (status === 'approved') {
+        const profileResponse = await authAPI.me();
+        if (profileResponse?.data) {
+          await updateUser(profileResponse.data);
+        }
+        Alert.alert('Pagamento aprovado', 'Seu plano está ativo. Verifique sua aba de assinaturas ou agende uma consulta.');
+        setPaymentModalVisible(false);
+        setPaymentResult(null);
+        setConfirmPlan(null);
+        setPaymentStatus(null);
+        return;
+      }
+
+      Alert.alert('Status do pagamento', `O pagamento está com status: ${status}.`);
+    } catch (error) {
+      console.error('Erro ao verificar status do pagamento:', error);
+      Alert.alert('Erro', 'Não foi possível verificar o status do pagamento. Tente novamente em alguns minutos.');
     } finally {
       setIsPaymentProcessing(false);
     }
@@ -486,13 +522,22 @@ export default function PlansScreen({ navigation }) {
                 <Text style={[styles.qrCodeText, { color: colors.text }]}>{paymentResult.qrCodeData}</Text>
               </ScrollView>
             )}
+            {paymentStatus ? (
+              <Text style={[styles.paymentInfoText, { color: colors.textSecondary, marginBottom: 12 }]}>Status atual: {paymentStatus}</Text>
+            ) : null}
             <Text style={[styles.paymentInfoText, { color: colors.textSecondary }]}>Pagamento expira em: {paymentResult.expiresAt ? new Date(paymentResult.expiresAt).toLocaleString() : '—'}</Text>
             <View style={styles.modalButtons}>
               <Pressable
-                style={[styles.modalButton, styles.modalConfirm, { backgroundColor: colors.primary }]}
-                onPress={() => { setPaymentModalVisible(false); setPaymentResult(null); setConfirmPlan(null); }}
+                style={[styles.modalButton, styles.modalCancel, { borderColor: colors.border }]}
+                onPress={() => { setPaymentModalVisible(false); setPaymentResult(null); setConfirmPlan(null); setPaymentStatus(null); }}
               >
-                <Text style={[styles.modalButtonText, { color: '#ffffff' }]}>Fechar</Text>
+                <Text style={[styles.modalButtonText, { color: colors.text }]}>Fechar</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalButton, styles.modalConfirm, { backgroundColor: colors.primary }]}
+                onPress={checkPaymentStatus}
+              >
+                <Text style={[styles.modalButtonText, { color: '#ffffff' }]}>Verificar status</Text>
               </Pressable>
             </View>
           </View>

@@ -83,6 +83,11 @@ async function createPixPayment(paymentData) {
       success: true,
       paymentId: payment._id,
       mercadoPagoId: paymentId,
+      subscriptionId: subscriptionId.toString(),
+      planName,
+      planDuration,
+      paymentMethod: 'pix',
+      status: paymentStatus,
       qrCodeData,
       qrCodeUrl,
       expiresAt: payment.expiresAt,
@@ -143,12 +148,24 @@ async function createCardPayment(paymentData) {
       transactionId: response.id,
     });
 
+    if (response.status === 'approved') {
+      payment.approvedAt = new Date();
+    }
+
     await payment.save();
+
+    if (response.status === 'approved') {
+      await activateSubscription(subscriptionId, userId, professionalId);
+    }
 
     return {
       success: true,
       paymentId: payment._id,
       mercadoPagoId: response.id,
+      subscriptionId: subscriptionId.toString(),
+      planName,
+      planDuration,
+      paymentMethod: 'credit_card',
       status: response.status,
       message: response.status === 'approved' ? 'Pagamento aprovado!' : 'Pagamento em processamento.',
     };

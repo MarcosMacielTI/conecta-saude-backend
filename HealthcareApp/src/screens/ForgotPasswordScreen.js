@@ -5,12 +5,13 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  ActivityIndicator,
   StyleSheet,
   Alert,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { authService } from '../services/api';
+import { authService, API_BASE_URL } from '../services/api';
 
 export default function ForgotPasswordScreen({ navigation }) {
   const [email, setEmail] = useState('');
@@ -21,6 +22,7 @@ export default function ForgotPasswordScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
 
   const handleRequestReset = async () => {
+    console.log('Solicitando reset de senha para', email);
     if (!email) {
       return Alert.alert('Erro', 'Informe seu email.');
     }
@@ -28,6 +30,7 @@ export default function ForgotPasswordScreen({ navigation }) {
     setLoading(true);
     try {
       const response = await authService.requestPasswordReset(email);
+      console.log('Resposta do reset de senha', response?.data);
       setResetRequested(true);
       if (response.data.resetToken) {
         Alert.alert('Sucesso', 'Token gerado. Copie o código recebido e use-o para redefinir a senha.');
@@ -35,6 +38,7 @@ export default function ForgotPasswordScreen({ navigation }) {
         Alert.alert('Sucesso', 'Se o email existir, você receberá um código para redefinir a senha.');
       }
     } catch (error) {
+      console.error('Erro ao solicitar reset de senha', error);
       Alert.alert(
         'Erro',
         error.response?.data?.error || error.response?.data?.message || error.message || 'Falha ao solicitar redefinição de senha.'
@@ -80,6 +84,7 @@ export default function ForgotPasswordScreen({ navigation }) {
           <Text style={styles.subtitle}>
             Informe seu email para receber um código de redefinição.
           </Text>
+          <Text style={styles.debugText}>API: {API_BASE_URL}</Text>
 
           <TextInput
             style={styles.input}
@@ -90,8 +95,12 @@ export default function ForgotPasswordScreen({ navigation }) {
             onChangeText={setEmail}
           />
 
-          <TouchableOpacity style={styles.button} onPress={handleRequestReset} disabled={loading}>
-            <Text style={styles.buttonText}>Solicitar código</Text>
+          <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleRequestReset} disabled={loading}>
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Solicitar código</Text>
+            )}
           </TouchableOpacity>
 
           {resetRequested && (
@@ -169,9 +178,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  buttonDisabled: {
+    backgroundColor: '#a5b4fc',
+  },
   buttonText: {
     color: '#fff',
     fontWeight: '700',
     fontSize: 16,
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 10,
   },
 });

@@ -181,6 +181,15 @@ router.get('/:paymentId', verifyToken, async (req, res) => {
 
     // Get latest status from Mercado Pago
     const status = await paymentService.getPaymentStatus(payment.mercadoPagoId);
+    payment.mercadoPagoStatus = status.status;
+    await payment.save();
+
+    if (status.status === 'approved' && payment.subscriptionId) {
+      const subscription = await Subscription.findById(payment.subscriptionId);
+      if (subscription && subscription.status !== 'active') {
+        await paymentService.activateSubscription(payment.subscriptionId, payment.userId, payment.professionalId);
+      }
+    }
 
     res.json({
       paymentId: payment._id,

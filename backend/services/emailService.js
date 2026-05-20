@@ -29,16 +29,19 @@ const sendPasswordResetEmail = async ({ to, name, token }) => {
   }
 
   const from = process.env.EMAIL_FROM || process.env.SMTP_USER;
-  const appUrl = process.env.FRONTEND_URL || 'https://planodeassinatura-production.up.railway.app';
-  const resetLink = `${appUrl}/reset-password?token=${token}`;
+  const appUrl = (process.env.FRONTEND_URL || 'https://planodeassinatura-production.up.railway.app').replace(/\/+$/, '');
+  const appDeepLink = process.env.APP_DEEP_LINK || 'meusistema://reset-password';
+  const webLink = `${appUrl}/reset-password?token=${encodeURIComponent(token)}`;
+  const appLink = `${appDeepLink}?token=${encodeURIComponent(token)}`;
 
   const html = `
     <p>Olá ${name || 'usuário'},</p>
     <p>Recebemos uma solicitação para redefinir a sua senha.</p>
-    <p>Use o código abaixo no app ou acesse o link de redefinição:</p>
-    <p><strong>${token}</strong></p>
-    <p>Link de redefinição: <a href="${resetLink}">${resetLink}</a></p>
-    <p>Esse código expira em 1 hora.</p>
+    <p>Se estiver usando o app móvel, tente abrir o link abaixo:</p>
+    <p><a href="${appLink}">${appLink}</a></p>
+    <p>Se o app não abrir, use este link no navegador:</p>
+    <p><a href="${webLink}">${webLink}</a></p>
+    <p>Esse link expira em 15 minutos.</p>
     <p>Se você não solicitou essa alteração, ignore esta mensagem.</p>
   `;
 

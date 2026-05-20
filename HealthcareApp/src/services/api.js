@@ -7,17 +7,27 @@ const getAppHost = () => {
   if (Platform.OS === 'web') {
     return 'localhost';
   }
+
   const debuggerHost = Constants.manifest?.debuggerHost || Constants.manifest2?.debuggerHost;
   if (debuggerHost) {
     return debuggerHost.split(':')[0];
   }
 
-  // Força usar IP local do PC quando debuggerHost não funciona
-  return '10.0.0.172';
+  // Use Android emulator localhost mapping if available
+  if (Platform.OS === 'android') {
+    return '10.0.2.2';
+  }
+
+  // Fallback para iOS/emulador físico se não houver debuggerHost
+  return '127.0.0.1';
 };
 
+const configuredApiUrl = Constants.expoConfig?.extra?.API_URL || Constants.manifest?.extra?.API_URL || Constants.manifest2?.extra?.API_URL;
 const API_HOST = getAppHost();
-const API_URL = `http://${API_HOST}:3000/api`;
+const API_URL = configuredApiUrl ? `${configuredApiUrl.replace(/\/+$/, '')}/api` : `http://${API_HOST}:3000/api`;
+if (__DEV__) {
+  console.log('[API] baseURL =', API_URL);
+}
 
 const api = axios.create({
   baseURL: API_URL,
@@ -35,12 +45,13 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+export const API_BASE_URL = API_URL;
 export const authService = {
   register: (data) => api.post('/auth/register', data),
   login: (email, password) => api.post('/auth/login', { email, password }),
   googleAuth: (idToken) => api.post('/auth/google/mobile', { idToken }),
-  requestPasswordReset: (email) => api.post('/auth/password-reset-request', { email }),
-  resetPassword: (token, password) => api.post('/auth/password-reset', { token, password }),
+  requestPasswordReset: (email) => api.post('/auth/forgot-password', { email }),
+  resetPassword: (token, password) => api.post('/auth/reset-password', { token, password }),
 };
 
 export default api;

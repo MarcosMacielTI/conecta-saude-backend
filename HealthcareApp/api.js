@@ -36,6 +36,7 @@ export const setAuthToken = (token) => {
 export const authAPI = {
     login: (email, password) => api.post('/auth/login', { email, password }),
     register: (name, email, password, cpf, role) => api.post('/auth/register', { name, email, password, cpf, role }),
+    me: () => api.get('/auth/me'),
 };
 
 export const professionalsAPI = {

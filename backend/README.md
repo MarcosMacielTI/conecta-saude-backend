@@ -219,6 +219,7 @@ SMTP_USER=seu_usuario_smtp
 SMTP_PASS=sua_senha_smtp
 EMAIL_FROM="Conecta Saude <no-reply@seudominio.com>"
 FRONTEND_URL=https://planodeassinatura-production.up.railway.app
+APP_DEEP_LINK=meusistema://reset-password
 ```
 
 Recomendações:
@@ -228,10 +229,10 @@ Recomendações:
 
 Como testar localmente (após iniciar o servidor):
 
-- Solicitar geração de token (retornará mensagem genérica):
+- Solicitar geração de link de recuperação (retornará mensagem genérica):
 
 ```bash
-curl -X POST http://localhost:3000/api/auth/password-reset-request \
+curl -X POST http://localhost:3000/api/auth/forgot-password \
   -H "Content-Type: application/json" \
   -d '{"email":"usuario@teste.com"}'
 ```
@@ -239,7 +240,7 @@ curl -X POST http://localhost:3000/api/auth/password-reset-request \
 - Após receber o email, use o token enviado para redefinir a senha:
 
 ```bash
-curl -X POST http://localhost:3000/api/auth/password-reset \
+curl -X POST http://localhost:3000/api/auth/reset-password \
   -H "Content-Type: application/json" \
   -d '{"token":"CODIGO_DO_EMAIL","password":"novaSenha123"}'
 ```
