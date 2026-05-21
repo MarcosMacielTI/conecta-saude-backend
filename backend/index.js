@@ -85,7 +85,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Routes
-app.use('/api/auth', authLimiter, require('./routes/auth'));
+app.use('/api/auth', require('./routes/auth'));
 app.use('/api/professionals', require('./routes/professionals'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/subscriptions', require('./routes/subscriptions'));
@@ -131,6 +131,12 @@ app.get('/health', (req, res) => {
         database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
     });
 });
+
+// Rota principal
+app.get('/', (req, res) => {
+    res.send('🚀 API Conecta Saúde online!');
+});
+
 
 // Socket.IO for real-time chat with plan verification
 const jwt = require('jsonwebtoken');
