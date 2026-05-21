@@ -1,4 +1,5 @@
 const express = require('express');
+global.crypto = require('crypto');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
@@ -9,9 +10,7 @@ const helmet = require('helmet');
 dotenv.config();
 
 const app = express();
-if (process.env.NODE_ENV === 'production') {
-    app.set('trust proxy', 1);
-}
+app.set('trust proxy', true);
 
 const server = http.createServer(app);
 const io = socketIo(server, {
