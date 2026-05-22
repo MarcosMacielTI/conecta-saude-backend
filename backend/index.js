@@ -41,6 +41,7 @@ if (process.env.NODE_ENV === 'production') {
 
 app.use(captureRequestInfo);
 app.use(sanitizeInput);
+app.use(validateSensitiveData);
 
 app.use(cors({
     origin: true,

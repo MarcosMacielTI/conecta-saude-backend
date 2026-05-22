@@ -3,8 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 
 const expoExtra = Constants?.expoConfig?.extra || Constants?.manifest?.extra || {};
-// ⚠️ IP LOCAL: 10.0.0.172 (obtido via ipconfig)
-const apiUrl = expoExtra?.API_URL || process.env.API_URL || 'http://10.0.0.172:3000';
+// Default to production backend on Railway; local/dev can override via expo extra or env
+const apiUrl = expoExtra?.API_URL || process.env.API_URL || 'https://conecta-saude-backend-production.up.railway.app';
 const BASE_URL = apiUrl.replace(/\/+$/, '');
 export const API_BASE_URL = `${BASE_URL}/api`;
 export const BASE_API_URL = BASE_URL;
@@ -18,6 +18,7 @@ const api = axios.create({
 
 api.interceptors.request.use(async (config) => {
     const token = await AsyncStorage.getItem('token');
+    config.headers = config.headers || {};
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;
     }

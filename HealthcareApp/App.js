@@ -174,10 +174,10 @@ function HomeScreen({ navigation }) {
 
       {/* Ações Rápidas */}
       {user?.role === 'patient' && !activePlanLabel && (
-        <View style={[styles.planAlertCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+        <View style={[styles.planAlertCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}> 
           <Text style={[styles.planAlertTitle, { color: colors.text }]}>Você ainda não possui um plano ativo.</Text>
           <Text style={[styles.planAlertText, { color: colors.textSecondary }]}>Para conversar com profissionais e agendar consultas, escolha um plano.</Text>
-          <Pressable onPress={() => navigation.navigate('Plans')} style={[styles.planAlertButton, { backgroundColor: colors.primary }]}>
+          <Pressable onPress={() => navigation.navigate('Plans')} style={[styles.planAlertButton, { backgroundColor: colors.primary }]}> 
             <Text style={styles.planAlertButtonText}>Ver Planos</Text>
           </Pressable>
         </View>
@@ -1008,8 +1008,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   planAlertCard: {
+    marginHorizontal: 24,
     borderRadius: 18,
     padding: 16,
+    marginTop: 32,
     marginBottom: 16,
   },
   planAlertTitle: {
