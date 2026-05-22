@@ -56,7 +56,16 @@ app.use('/api/', apiLimiter);
 app.use('/api/auth/', authLimiter);
 
 // Connect to MongoDB (use local or Atlas)
-const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/conecta_saude';
+const DEFAULT_MONGO_URI = 'mongodb://localhost:27017/conecta_saude';
+const configuredMongoUri = process.env.MONGO_URI || DEFAULT_MONGO_URI;
+const mongoUri = configuredMongoUri.includes('[USER]') || configuredMongoUri.includes('[PASSWORD]') || configuredMongoUri.includes('[CLUSTER]')
+    ? DEFAULT_MONGO_URI
+    : configuredMongoUri;
+
+if (mongoUri === DEFAULT_MONGO_URI && configuredMongoUri !== DEFAULT_MONGO_URI) {
+    console.warn('⚠️ MONGO_URI está usando placeholders. Usando MongoDB local padrão:', DEFAULT_MONGO_URI);
+}
+
 console.log('🔗 Connecting to MongoDB:', mongoUri.split('@')[1] || mongoUri);
 
 mongoose.connect(mongoUri, {
