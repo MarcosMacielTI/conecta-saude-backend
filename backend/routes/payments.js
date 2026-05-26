@@ -52,6 +52,17 @@ const createPendingSubscription = async ({ userId, professionalId, planName, pla
 };
 
 /**
+ * GET /api/payments/webhook
+ * Explicitly reject browser GETs for the webhook endpoint.
+ */
+router.get('/webhook', (req, res) => {
+  res.status(405).json({
+    error: 'Method not allowed',
+    message: 'Use POST for Mercado Pago webhooks.'
+  });
+});
+
+/**
  * POST /api/payments/create-pix
  * Create Pix payment and return QR code
  */

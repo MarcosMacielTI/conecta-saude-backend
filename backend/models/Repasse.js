@@ -117,12 +117,11 @@ const repasseSchema = new mongoose.Schema({
 });
 
 // Middleware to ensure netAmount = grossAmount (no fees)
-repasseSchema.pre('save', function (next) {
+repasseSchema.pre('save', async function () {
   if (this.status === 'pending' || this.status === 'approved') {
     this.netAmount = this.grossAmount;
   }
   this.updatedAt = new Date();
-  next();
 });
 
 // Index for efficient queries

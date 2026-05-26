@@ -59,7 +59,7 @@ const userSchema = new mongoose.Schema({
 userSchema.index({ role: 1 });
 
 // Pre-save middleware for security
-userSchema.pre('save', function (next) {
+userSchema.pre('save', async function () {
     // Encrypt CPF if provided
     if (this.isModified('cpf') && this.cpf) {
         try {
@@ -77,7 +77,6 @@ userSchema.pre('save', function (next) {
     }
 
     this.updatedAt = new Date();
-    next();
 });
 
 // Virtual to decrypt CPF (only accessible in code, not serialized)

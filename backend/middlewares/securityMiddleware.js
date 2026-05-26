@@ -85,26 +85,28 @@ const checkSuspiciousActivity = async (req, res, next) => {
  * Middleware to validate sensitive data format
  */
 const validateSensitiveData = (req, res, next) => {
+  const body = req.body || {};
+
   // Validate CPF format (11 digits)
-  if (req.body.cpf) {
+  if (body.cpf) {
     const cpfRegex = /^\d{11}$/;
-    if (!cpfRegex.test(req.body.cpf.replace(/\D/g, ''))) {
+    if (!cpfRegex.test(String(body.cpf).replace(/\D/g, ''))) {
       return res.status(400).json({ error: 'Invalid CPF format' });
     }
   }
 
   // Validate email format
-  if (req.body.email) {
+  if (body.email) {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(req.body.email)) {
+    if (!emailRegex.test(String(body.email))) {
       return res.status(400).json({ error: 'Invalid email format' });
     }
   }
 
   // Validate phone format (optional but if provided)
-  if (req.body.phone) {
+  if (body.phone) {
     const phoneRegex = /^\d{10,11}$/;
-    if (!phoneRegex.test(req.body.phone.replace(/\D/g, ''))) {
+    if (!phoneRegex.test(String(body.phone).replace(/\D/g, ''))) {
       return res.status(400).json({ error: 'Invalid phone format' });
     }
   }
@@ -153,8 +155,10 @@ const enforceHTTPS = (req, res, next) => {
   }
 
   const isSecure = req.secure || req.header('x-forwarded-proto') === 'https';
+  const host = String(req.hostname || req.get('host') || '').replace(/:\d+$/, '');
+  const isLocalhost = ['localhost', '127.0.0.1', '::1'].includes(host);
 
-  if (process.env.NODE_ENV === 'production' && !isSecure) {
+  if (process.env.NODE_ENV === 'production' && !isSecure && !isLocalhost) {
     return res.status(403).json({ error: 'HTTPS required' });
   }
 

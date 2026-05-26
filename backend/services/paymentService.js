@@ -17,6 +17,26 @@ const mpConfig = new MercadoPagoConfig({
 const mpPayment = new MercadoPagoPayment(mpConfig);
 const mpRefund = new PaymentRefund(mpConfig);
 
+function normalizeBackendBaseUrl() {
+  const rawBaseUrl = (process.env.BACKEND_BASE_URL || 'http://localhost:3000').trim();
+
+  if (!rawBaseUrl) {
+    return 'http://localhost:3000';
+  }
+
+  const normalized = rawBaseUrl.replace(/\/+$/g, '');
+
+  if (/^https?:\/\//i.test(normalized)) {
+    return normalized;
+  }
+
+  if (/^(localhost|127\.0\.0\.1|::1)(:\d+)?$/i.test(normalized)) {
+    return `http://${normalized}`;
+  }
+
+  return `https://${normalized}`;
+}
+
 /**
  * Create a payment request and return QR code for Pix
  */
@@ -32,7 +52,7 @@ async function createPixPayment(paymentData) {
   } = paymentData;
 
   try {
-    const backendUrl = process.env.BACKEND_BASE_URL || 'http://localhost:3000';
+    const backendUrl = normalizeBackendBaseUrl();
 
     // Create payment request body
     const paymentRequest = {
@@ -116,7 +136,7 @@ async function createCardPayment(paymentData) {
   } = paymentData;
 
   try {
-    const backendUrl = process.env.BACKEND_BASE_URL || 'http://localhost:3000';
+    const backendUrl = normalizeBackendBaseUrl();
 
     const paymentRequest = {
       transaction_amount: parseFloat(planPrice),
