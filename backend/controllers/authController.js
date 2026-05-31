@@ -46,42 +46,42 @@ const forgotPassword = async (req, res) => {
 };
 
 const resetPassword = async (req, res) => {
-    const { token, password } = req.body;
-    if (!token || !password) {
-      return res.status(400).json({ error: 'Token and password are required' });
+  const { token, password } = req.body;
+  if (!token || !password) {
+    return res.status(400).json({ error: 'Token and password are required' });
+  }
+
+  try {
+    const resetRecord = await PasswordResetToken.findOne({
+      token,
+      used: false,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!resetRecord) {
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
     }
 
-    try {
-      const resetRecord = await PasswordResetToken.findOne({
-        token,
-        used: false,
-        expiresAt: { $gt: new Date() },
-      });
-
-      if (!resetRecord) {
-        return res.status(400).json({ error: 'Invalid or expired reset token' });
-      }
-
-      const user = await User.findById(resetRecord.userId);
-      if (!user) {
-        return res.status(400).json({ error: 'Invalid or expired reset token' });
-      }
-
-      user.password = await bcrypt.hash(password, 10);
-      await user.save();
-
-      resetRecord.used = true;
-      resetRecord.usedAt = new Date();
-      await resetRecord.save();
-
-      return res.json({ message: 'Senha alterada com sucesso' });
-    } catch (err) {
-      console.error('Reset password error:', err);
-      return res.status(400).json({ error: err.message });
+    const user = await User.findById(resetRecord.userId);
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
     }
-  };
 
-  module.exports = {
-    forgotPassword,
-    resetPassword,
-  };
+    user.password = await bcrypt.hash(password, 10);
+    await user.save();
+
+    resetRecord.used = true;
+    resetRecord.usedAt = new Date();
+    await resetRecord.save();
+
+    return res.json({ message: 'Senha alterada com sucesso' });
+  } catch (err) {
+    console.error('Reset password error:', err);
+    return res.status(400).json({ error: err.message });
+  }
+};
+
+module.exports = {
+  forgotPassword,
+  resetPassword,
+};

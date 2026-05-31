@@ -524,7 +524,7 @@ export default function PlansScreen({ navigation }) {
               <Image source={{ uri: paymentResult.qrCodeUrl }} style={styles.qrCodeImage} />
             ) : (
               <ScrollView style={styles.qrCodeTextContainer}>
-                <Text style={[styles.qrCodeText, { color: colors.text }]}> 
+                <Text style={[styles.qrCodeText, { color: colors.text }]}>
                   {paymentResult.qrCodeData || paymentResult.pixCode || paymentResult.qrCode || JSON.stringify(paymentResult, null, 2)}
                 </Text>
               </ScrollView>
