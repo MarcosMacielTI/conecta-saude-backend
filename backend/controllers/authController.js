@@ -31,11 +31,11 @@ const forgotPassword = async (req, res) => {
         expiresAt,
       });
 
-      // await sendPasswordResetEmail({
-      //   to: user.email,
-      //   name: user.name,
-      //   token: resetToken,
-      // });
+      await sendPasswordResetEmail({
+      to: user.email,
+      name: user.name,
+      token: resetToken,
+      });
 
       return res.json({ message: 'Se o e-mail existir, um link foi enviado.' });
     } catch (err) {
