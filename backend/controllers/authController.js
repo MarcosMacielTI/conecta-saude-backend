@@ -32,19 +32,20 @@ const forgotPassword = async (req, res) => {
       });
 
       await sendPasswordResetEmail({
-      to: user.email,
-      name: user.name,
-      token: resetToken,
+        to: user.email,
+        name: user.name,
+        token: resetToken,
       });
-
-      return res.json({ message: 'Se o e-mail existir, um link foi enviado.' });
-    } catch (err) {
-      console.error('Forgot password error:', err);
-      return res.json({ message: 'Se o e-mail existir, um link foi enviado.' });
     }
-  };
 
-  const resetPassword = async (req, res) => {
+    return res.json({ message: 'Se o e-mail existir, um link foi enviado.' });
+  } catch (err) {
+    console.error('Forgot password error:', err);
+    return res.json({ message: 'Se o e-mail existir, um link foi enviado.' });
+  }
+};
+
+const resetPassword = async (req, res) => {
     const { token, password } = req.body;
     if (!token || !password) {
       return res.status(400).json({ error: 'Token and password are required' });

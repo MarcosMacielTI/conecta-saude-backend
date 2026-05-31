@@ -29,8 +29,9 @@ const verifyToken = (req, res, next) => {
 // Register - return token + user
 router.post('/register', async (req, res) => {
     const { name, email, password, role, cpf, specialty } = req.body;
+    const normalizedEmail = email?.trim().toLowerCase();
     try {
-        const existingEmail = await User.findOne({ email });
+        const existingEmail = await User.findOne({ email: normalizedEmail });
         if (existingEmail) return res.status(409).json({ error: 'Email already in use' });
 
         if (cpf) {
@@ -41,7 +42,7 @@ router.post('/register', async (req, res) => {
         let hashedPassword = null;
         if (password) hashedPassword = await bcrypt.hash(password, 10);
 
-        const user = new User({ name, email, password: hashedPassword, role, cpf });
+        const user = new User({ name, email: normalizedEmail, password: hashedPassword, role, cpf });
         await user.save();
 
         // If registering as professional, create Professional document
@@ -95,8 +96,9 @@ router.post('/password-reset', authController.resetPassword);
 // Login
 router.post('/login', async (req, res) => {
     const { email, password } = req.body;
+    const normalizedEmail = email?.trim().toLowerCase();
     try {
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ email: normalizedEmail });
         if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
         if (user.password) {
