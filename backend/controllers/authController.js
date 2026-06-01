@@ -31,11 +31,16 @@ const forgotPassword = async (req, res) => {
         expiresAt,
       });
 
-      await sendPasswordResetEmail({
+      const emailResult = await sendPasswordResetEmail({
         to: user.email,
         name: user.name,
         token: resetToken,
       });
+
+      if (!emailResult.success) {
+        console.error('Forgot password email error:', emailResult.error);
+        return res.status(500).json({ error: 'Erro ao enviar o email de redefinição. Verifique a configuração de SMTP.' });
+      }
     }
 
     return res.json({ message: 'Se o e-mail existir, um link foi enviado.' });

@@ -24,7 +24,8 @@ const getAppHost = () => {
 
 const configuredApiUrl = Constants.expoConfig?.extra?.API_URL || Constants.manifest?.extra?.API_URL || Constants.manifest2?.extra?.API_URL;
 const API_HOST = getAppHost();
-const API_URL = configuredApiUrl ? `${configuredApiUrl.replace(/\/+$/, '')}/api` : `http://${API_HOST}:3000/api`;
+const normalizedApiUrl = configuredApiUrl ? configuredApiUrl.replace(/\/+$/, '') : null;
+const API_URL = normalizedApiUrl ? `${normalizedApiUrl}/api` : `http://${API_HOST}:3000/api`;
 if (__DEV__) {
   console.log('[API] baseURL =', API_URL);
 }
