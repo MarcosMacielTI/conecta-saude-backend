@@ -1,5 +1,5 @@
 import React, { useContext, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Platform, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Platform, Image, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from './src/hooks/useTheme';
 import { AuthContext } from './src/context/AuthContext';
@@ -217,9 +217,9 @@ export default function PlansScreen({ navigation }) {
       }
 
       const consultations = getConsultationsCount(plan.id);
-      console.log('📝 Confirm plan object:', { plan: plan.name, price, periodLabel, consultations });
+      console.log('📝 Objeto do plano a confirmar:', { plan: plan.name, price, periodLabel, consultations, professionalId });
 
-      setConfirmPlan({
+      const confirmPlanObj = {
         ...plan,
         price,
         periodLabel,
@@ -227,9 +227,12 @@ export default function PlansScreen({ navigation }) {
         planKey,
         isTestPlan,
         consultations,
-      });
+      };
+
+      console.log('✅ confirmPlan final:', confirmPlanObj);
+      setConfirmPlan(confirmPlanObj);
       setPaymentMethod('pix');
-      console.log('✅ Setting confirmVisible to true');
+      console.log('✅ Abrindo modal de confirmação');
       setConfirmVisible(true);
     } catch (error) {
       console.error('❌ Erro geral no handleSelectPlan:', error);
@@ -239,10 +242,10 @@ export default function PlansScreen({ navigation }) {
   };
 
   const confirmPurchase = async () => {
-    if (!confirmPlan || !user) return;
-    setConfirmVisible(false);
-    setPaymentResult(null);
-    setPaymentStatus(null);
+    if (!confirmPlan || !user) {
+      console.warn('❌ Erro: confirmPlan ou user não definido');
+      return;
+    }
 
     if (paymentMethod !== 'pix') {
       Alert.alert('Em breve', 'No momento, apenas PIX está disponível. Outros meios serão adicionados em breve.');
@@ -251,20 +254,46 @@ export default function PlansScreen({ navigation }) {
 
     setIsPaymentProcessing(true);
     try {
+      // Validar dados antes de enviar
+      if (!confirmPlan.professionalId) {
+        console.warn('❌ Erro: professionalId não definido', confirmPlan);
+        throw new Error('Profissional não selecionado. Tente novamente.');
+      }
+
       const requestData = {
-        planId: confirmPlan.id,
+        professionalId: confirmPlan.professionalId,
+        planName: confirmPlan.planKey || confirmPlan.name,
+        planPrice: confirmPlan.price,
+        planDuration: confirmPlan.periodLabel?.toLowerCase() || selectedPeriod,
       };
-      console.log('🚀 Enviando pedido PIX para criar pagamento:', requestData);
+
+      console.log('📋 Dados do pagamento:', requestData);
+      console.log('🚀 Enviando pedido PIX para criar pagamento...');
 
       const response = await paymentsAPI.createPix(requestData);
-      console.log('✅ Recebido paymentResult:', response.data);
+      console.log('✅ Pagamento PIX criado com sucesso:', response.data);
+
+      // Fechar modal de confirmação e abrir modal de pagamento
+      setConfirmVisible(false);
+      setPaymentResult(null);
+      setPaymentStatus(null);
 
       setPaymentResult(response.data);
       setPaymentStatus(response.data.status || 'pending');
       setPaymentModalVisible(true);
+
     } catch (error) {
-      console.error('Erro ao criar pagamento PIX:', error?.response?.data || error?.message || error);
-      Alert.alert('Erro', error.response?.data?.error || 'Não foi possível iniciar o pagamento PIX.');
+      console.error('❌ Erro ao criar pagamento PIX:');
+      console.error('Status:', error?.response?.status);
+      console.error('Data:', error?.response?.data);
+      console.error('Message:', error?.message);
+      console.error('Full error:', error);
+
+      const errorMsg = error?.response?.data?.error || error?.message || 'Não foi possível iniciar o pagamento PIX.';
+      Alert.alert('Erro ao processar pagamento', errorMsg);
+
+      // Manter modal de confirmação aberto para tentar novamente
+      setConfirmVisible(true);
     } finally {
       setIsPaymentProcessing(false);
     }
@@ -499,15 +528,20 @@ export default function PlansScreen({ navigation }) {
               <Pressable
                 style={[styles.modalButton, styles.modalCancel, { borderColor: colors.border }]}
                 onPress={() => { setConfirmVisible(false); setConfirmPlan(null); }}
+                disabled={isPaymentProcessing}
               >
                 <Text style={[styles.modalButtonText, { color: colors.text }]}>Não</Text>
               </Pressable>
               <Pressable
-                style={[styles.modalButton, styles.modalConfirm, { backgroundColor: colors.primary, opacity: isPaymentProcessing ? 0.6 : 1 }]}
+                style={[styles.modalButton, styles.modalConfirm, { backgroundColor: colors.primary, opacity: isPaymentProcessing ? 0.7 : 1 }]}
                 disabled={isPaymentProcessing}
                 onPress={confirmPurchase}
               >
-                <Text style={[styles.modalButtonText, { color: '#ffffff' }]}> {isPaymentProcessing ? 'Aguarde...' : 'Sim'} </Text>
+                {isPaymentProcessing ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <Text style={[styles.modalButtonText, { color: '#ffffff' }]}>Sim, confirmar</Text>
+                )}
               </Pressable>
             </View>
           </View>

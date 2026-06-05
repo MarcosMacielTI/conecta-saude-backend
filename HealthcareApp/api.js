@@ -4,10 +4,18 @@ import Constants from 'expo-constants';
 
 const expoExtra = Constants?.expoConfig?.extra || Constants?.manifest?.extra || {};
 // Default to production backend on Railway; local/dev can override via expo extra or env
-const apiUrl = expoExtra?.API_URL || process.env.API_URL || 'https://conecta-saude-backend-production.up.railway.app';
+// FORCE LOCAL DEVELOPMENT
+const apiUrl = 'http://localhost:3000'; // OVERRIDE: use localhost for development
 const BASE_URL = apiUrl.replace(/\/+$/, '');
 export const API_BASE_URL = `${BASE_URL}/api`;
 export const BASE_API_URL = BASE_URL;
+
+console.log('🔧 API Config:', {
+  expoExtra,
+  apiUrl,
+  BASE_URL,
+  API_BASE_URL
+});
 
 const api = axios.create({
     baseURL: API_BASE_URL,
@@ -20,10 +28,25 @@ api.interceptors.request.use(async (config) => {
     const token = await AsyncStorage.getItem('token');
     config.headers = config.headers || {};
     if (token) {
+        console.log('🔑 Token found, adding to Authorization header');
+        console.log('🔑 Token preview:', token.substring(0, 20) + '...');
         config.headers.Authorization = `Bearer ${token}`;
+    } else {
+        console.warn('⚠️ No token found in AsyncStorage');
     }
     return config;
 });
+
+api.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response?.status === 401) {
+            console.error('❌ 401 Unauthorized - Token is invalid or expired');
+            console.error('Response error:', error.response?.data);
+        }
+        return Promise.reject(error);
+    }
+);
 
 // Function to set auth token
 export const setAuthToken = (token) => {

@@ -24,12 +24,6 @@ export default function LoginScreen({ navigation }) {
 
   console.log('Google redirect URI (add this to Google Console):', redirectUri);
 
-  useEffect(() => {
-    if (redirectUri) {
-      Alert.alert('Google redirect URI', redirectUri);
-    }
-  }, [redirectUri]);
-
   const [, response, promptAsync] = Google.useAuthRequest({
     expoClientId: EXPO_CLIENT_ID,
     iosClientId: IOS_CLIENT_ID,
@@ -206,8 +200,8 @@ export default function LoginScreen({ navigation }) {
               </View>
             </View>
 
-            <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
-              <Text style={styles.forgotPasswordText}>Esqueceu a senha?</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')} style={{ alignSelf: 'flex-end', marginBottom: 8 }}>
+              <Text style={{ color: '#2563eb', fontSize: 14 }}>Esqueceu a senha?</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -231,6 +225,10 @@ export default function LoginScreen({ navigation }) {
 
             <TouchableOpacity onPress={() => navigation.navigate('Register')} style={styles.bottomTextWrapper}>
               <Text style={styles.registerText}>Não tem conta? <Text style={styles.registerLink}>Cadastre-se</Text></Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.viewPlansButton} onPress={() => navigation.navigate('Plans')}>
+              <Text style={styles.viewPlansButtonText}>Ver Planos Disponíveis</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -381,13 +379,6 @@ const styles = StyleSheet.create({
     color: '#2563eb',
     fontWeight: '700',
   },
-  forgotPasswordText: {
-    color: '#2563eb',
-    textAlign: 'right',
-    marginBottom: 18,
-    fontSize: 14,
-    fontWeight: '700',
-  },
   biometricButton: {
     backgroundColor: '#f0f9ff',
     borderRadius: 14,
@@ -419,5 +410,18 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     color: '#94a3b8',
     fontSize: 13,
+  },
+  viewPlansButton: {
+    backgroundColor: '#10b981',
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 20,
+  },
+  viewPlansButtonText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

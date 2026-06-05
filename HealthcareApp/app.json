@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "extra": {
-      "API_URL": "https://planodeassinatura-production.up.railway.app"
+      "API_URL": "http://localhost:3000"
     },
     "splash": {
       "image": "./assets/splash-icon.png",

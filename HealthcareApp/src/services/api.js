@@ -39,11 +39,26 @@ api.interceptors.request.use(
   async (config) => {
     const token = await AsyncStorage.getItem('token');
     if (token) {
+      console.log('🔑 Token found, adding to Authorization header');
+      console.log('🔑 Token preview:', token.substring(0, 20) + '...');
       config.headers.Authorization = `Bearer ${token}`;
+    } else {
+      console.warn('⚠️ No token found in AsyncStorage');
     }
     return config;
   },
   (error) => Promise.reject(error)
+);
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      console.error('❌ 401 Unauthorized - Token is invalid or expired');
+      console.error('Response error:', error.response?.data);
+    }
+    return Promise.reject(error);
+  }
 );
 
 export const API_BASE_URL = API_URL;

@@ -53,6 +53,9 @@ export default function LoginScreen({ navigation }) {
       <TouchableOpacity onPress={() => navigation.navigate('Plans')}>
         <Text style={styles.link}>Não tem conta? Assine Conecta Saúde</Text>
       </TouchableOpacity>
+      <TouchableOpacity style={[styles.button, { backgroundColor: '#10b981' }]} onPress={() => navigation.navigate('Plans')}>
+        <Text style={styles.buttonText}>Ver Planos</Text>
+      </TouchableOpacity>
     </View>
   );
 }
