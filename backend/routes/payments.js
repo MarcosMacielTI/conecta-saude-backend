@@ -10,13 +10,20 @@ const router = express.Router();
 // Middleware to verify token
 const verifyToken = (req, res, next) => {
   const token = req.header('Authorization')?.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'Access denied' });
+  if (!token) return res.status(401).json({ error: 'Access denied. No token provided.' });
   try {
     const verified = jwt.verify(token, process.env.JWT_SECRET || 'secret');
     req.user = verified;
     next();
   } catch (err) {
-    res.status(400).json({ error: 'Invalid token' });
+    console.error('❌ Token verification failed:', err.message);
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired. Please login again.' });
+    }
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: 'Invalid token. Please login again.' });
+    }
+    res.status(401).json({ error: 'Token verification failed. Please login again.' });
   }
 };
 
