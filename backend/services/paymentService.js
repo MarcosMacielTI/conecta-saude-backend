@@ -40,6 +40,15 @@ function normalizeBackendBaseUrl() {
 /**
  * Create a payment request and return QR code for Pix
  */
+function formatMercadoPagoError(error) {
+  if (!error) return 'Erro desconhecido do Mercado Pago';
+  const cause = Array.isArray(error.cause) ? error.cause[0] : error.cause;
+  if (cause?.code === 13253) {
+    return 'Erro Mercado Pago: conta coletora sem chave PIX habilitada ou sem permissão para gerar QR Code. Verifique o access token e a chave PIX na conta Mercado Pago.';
+  }
+  return error.message || error.error || 'Erro desconhecido do Mercado Pago';
+}
+
 async function createPixPayment(paymentData) {
   const {
     userId,
@@ -114,8 +123,9 @@ async function createPixPayment(paymentData) {
       message: 'Pagamento criado com sucesso. Escaneie o QR code para pagar.',
     };
   } catch (error) {
+    const message = formatMercadoPagoError(error);
     console.error('Error creating Pix payment:', error);
-    throw new Error(`Erro ao criar pagamento: ${error.message}`);
+    throw new Error(`Erro ao criar pagamento: ${message}`);
   }
 }
 
