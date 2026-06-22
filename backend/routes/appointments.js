@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
 const Professional = require('../models/Professional');
+const { hasActivePlan } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 
@@ -27,7 +28,7 @@ router.post('/', verifyToken, async (req, res) => {
         const user = await User.findById(req.user.id);
         if (!user) return res.status(404).json({ error: 'User not found' });
 
-        if (!user.plan) {
+        if (!hasActivePlan(user.plan)) {
             return res.status(403).json({
                 error: 'Active plan required to schedule appointments. Please purchase a plan.',
                 code: 'NO_PLAN'

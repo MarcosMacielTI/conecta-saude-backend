@@ -1,9 +1,10 @@
 import React, { useState, useContext, useEffect, useRef } from 'react';
-import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View, ScrollView, Pressable, Modal, Alert, Image, ActivityIndicator } from 'react-native';
+import { FlatList, StyleSheet, Text, View, Pressable, Modal, Alert, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from './src/context/AuthContext';
 import { useThemeColors } from './src/hooks/useTheme';
-import BackButton from './src/components/BackButton';
+import Chat from './src/components/Chat';
 import { professionalsAPI, messagesAPI, connectionsAPI, BASE_API_URL } from './api';
 import { sendLocalNotification, requestNotificationPermissions } from './src/services/notifications';
 import { EmojiPicker } from './src/components/EmojiPicker';
@@ -13,6 +14,8 @@ import { io } from 'socket.io-client';
 export default function ChatScreen({ navigation, route }) {
   const { user } = useContext(AuthContext);
   const colors = useThemeColors();
+  const routeConversationId = route?.params?.conversationId;
+  const routePatient = route?.params?.patient;
 
   // Validação de plano para pacientes
   useEffect(() => {
@@ -39,10 +42,25 @@ export default function ChatScreen({ navigation, route }) {
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pollLoading, setPollLoading] = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState({});
+
+  const getPresenceKey = (id) => id?.toString?.() || '';
+
+  const formatPresenceStatus = (presence) => {
+    if (!presence) return 'Offline';
+    if (presence.online) return 'Online';
+    if (presence.lastSeen) {
+      const date = new Date(presence.lastSeen);
+      return `Visto por último às ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    return 'Offline';
+  };
 
   const flatListRef = useRef(null);
   const pollIntervalRef = useRef(null);
   const socketRef = useRef(null);
+  const selectedConversationRef = useRef(null);
+  const receivedMessageIdsRef = useRef(new Set());
 
   // Initialize notifications
   useEffect(() => {
@@ -51,37 +69,142 @@ export default function ChatScreen({ navigation, route }) {
 
   // Socket.IO setup
   useEffect(() => {
-    socketRef.current = io(BASE_API_URL);
+    if (!user?.id) return;
 
-    socketRef.current.on('connect', () => {
-      console.log('Connected to Socket.IO');
-    });
+    let socket;
+    let mounted = true;
 
-    socketRef.current.on('receiveMessage', (message) => {
-      if (selectedConversation && message.senderId !== user.id) {
+    const initializeSocket = async () => {
+      const token = await AsyncStorage.getItem('token');
+      if (!mounted) return;
+
+      socket = io(BASE_API_URL, {
+        auth: { token },
+        transports: ['websocket'],
+      });
+
+      socket.on('connect', () => {
+        console.log('Connected to Socket.IO', socket.id);
+      });
+
+      socket.on('connect_error', (error) => {
+        console.error('Socket connect error:', error.message || error);
+      });
+
+      socket.on('onlineUsers', (userIds) => {
+        const presence = {};
+        (userIds || []).forEach((id) => {
+          const key = getPresenceKey(id);
+          if (key) presence[key] = { online: true, lastSeen: null };
+        });
+        setOnlineUsers((prev) => ({ ...prev, ...presence }));
+      });
+
+      socket.on('lastSeenUsers', (lastSeenPayload) => {
+        const presence = {};
+        Object.entries(lastSeenPayload || {}).forEach(([id, lastSeen]) => {
+          const key = getPresenceKey(id);
+          if (key) presence[key] = { online: false, lastSeen };
+        });
+        setOnlineUsers((prev) => ({ ...prev, ...presence }));
+      });
+
+      socket.on('presenceUpdate', ({ userId, online, lastSeen }) => {
+        const key = getPresenceKey(userId);
+        if (!key) return;
+        setOnlineUsers((prev) => ({
+          ...prev,
+          [key]: {
+            online: !!online,
+            lastSeen: online ? null : lastSeen || prev[key]?.lastSeen || new Date().toISOString(),
+          },
+        }));
+      });
+
+      socket.on('conversationUpdate', ({ connectionId, lastMessage, updatedAt, unreadCount }) => {
+        setConversations((prev) => prev.map((conv) => {
+          if (conv.connectionId.toString() !== connectionId.toString()) return conv;
+          return {
+            ...conv,
+            lastMessage: lastMessage || conv.lastMessage,
+            time: updatedAt ? new Date(updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : conv.time,
+            unread: typeof unreadCount === 'number' ? unreadCount : conv.unread,
+          };
+        }));
+      });
+
+      socket.on('receiveMessage', (message) => {
+        if (!message?._id || message.senderId?.toString() === user.id?.toString()) return;
+        const messageKey = message._id.toString();
+        if (receivedMessageIdsRef.current.has(messageKey)) return;
+        receivedMessageIdsRef.current.add(messageKey);
+
+        const activeConversation = selectedConversationRef.current;
+        const messageConnectionId = message.connectionId?.toString();
+        const activeConnectionId = activeConversation?._id?.toString() || activeConversation?.connectionId?.toString();
+
+        const timestamp = new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const formattedMessage = {
           _id: message._id,
-          text: message.content,
-          sender: message.senderType === 'patient' ? 'user' : 'professional',
-          timestamp: new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          texto: message.content,
+          hora: timestamp,
+          status: message.status || 'sent',
+          senderId: message.senderId,
+          isOutgoing: message.senderId?.toString() === user.id?.toString(),
+          pending: false,
         };
-        setMessages(prev => [...prev, formattedMessage]);
-        // Scroll to bottom
-        setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: true });
-        }, 100);
-      }
-    });
+
+        if (activeConnectionId === messageConnectionId) {
+          setMessages(prev => {
+            if (prev.some(msg => msg._id === formattedMessage._id)) return prev;
+            return [...prev, formattedMessage];
+          });
+        } else {
+          sendLocalNotification(
+            'Nova mensagem',
+            message.senderName ? `Nova mensagem de ${message.senderName}` : 'Você recebeu uma nova mensagem'
+          );
+        }
+
+        setConversations((prev) => prev.map((conv) => {
+          if (conv.connectionId.toString() !== messageConnectionId) return conv;
+          return {
+            ...conv,
+            lastMessage: formattedMessage.texto,
+            time: formattedMessage.hora,
+            unread: activeConnectionId === messageConnectionId ? 0 : (conv.unread || 0) + 1,
+          };
+        }));
+      });
+
+      socket.on('messageStatusUpdate', ({ messageId, status }) => {
+        setMessages(prev => prev.map(msg => msg._id === messageId ? { ...msg, status } : msg));
+      });
+
+      socket.on('error', (error) => {
+        console.error('Socket error:', error);
+      });
+
+      socketRef.current = socket;
+    };
+
+    initializeSocket();
 
     return () => {
-      socketRef.current?.disconnect();
+      mounted = false;
+      socket?.disconnect();
     };
-  }, [user.id, selectedConversation]);
+  }, [user?.id]);
+
+  useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
 
   // Join chat room when conversation changes
   useEffect(() => {
     if (selectedConversation && conversation?._id) {
       socketRef.current?.emit('joinChat', conversation._id);
+      socketRef.current?.emit('markAsRead', conversation._id);
     }
   }, [selectedConversation, conversation]);
 
@@ -92,42 +215,58 @@ export default function ChatScreen({ navigation, route }) {
 
       try {
         setLoading(true);
-        const connectionsResponse = await connectionsAPI.getConnections();
+        const [connectionsResponse, conversationsResponse] = await Promise.all([
+          connectionsAPI.getConnections(),
+          messagesAPI.getConversations(),
+        ]);
+
         const connections = connectionsResponse.data?.connections || connectionsResponse.data || [];
+        const conversationsData = (conversationsResponse.data?.conversations || conversationsResponse.data || []);
+        const conversationByConnectionId = new Map(conversationsData.map((conv) => [conv.connectionId.toString(), conv]));
+
+        const buildConversation = (connection) => {
+          const otherUser = user.role === 'patient' ? connection.professionalId : connection.patientId;
+          const otherUserId = otherUser?.userId || otherUser?._id || otherUser?.id;
+          const convMeta = conversationByConnectionId.get(connection._id.toString()) || {};
+          return {
+            _id: connection._id,
+            id: otherUserId,
+            name: otherUser?.name || (user.role === 'patient' ? 'Profissional' : 'Paciente'),
+            specialty: user.role === 'patient' ? otherUser?.specialty || '' : '',
+            lastMessage: convMeta.lastMessage || 'Clique para conversar',
+            time: convMeta.updatedAt ? new Date(convMeta.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+            unread: convMeta.unreadCount || 0,
+            contactType: user.role === 'patient' ? 'professional' : 'patient',
+            connectionId: connection._id,
+            professional: connection.professionalId,
+            patient: connection.patientId,
+          };
+        };
 
         if (user.role === 'patient') {
-          // Get professional for patient
           if (connections.length > 0) {
-            const connection = connections[0];
-            const professional = connection.professionalId;
-            setConversations([
-              {
-                id: professional._id || professional.id,
-                name: professional.name || 'Profissional',
-                specialty: professional.specialty || '',
-                lastMessage: 'Clique para conversar',
-                time: '',
-                unread: 0,
-                contactType: 'professional',
-                professional,
-                connectionId: connection._id,
-              },
-            ]);
+            const list = [buildConversation(connections[0])];
+            setConversations(list);
+            if (routeConversationId && routeConversationId.toString() === connections[0]._id.toString()) {
+              setSelectedConversation(list[0]);
+            }
+          } else {
+            setConversations([]);
           }
         } else if (user.role === 'professional') {
-          // Get patients for professional
-          const convList = connections.map((connection) => ({
-            id: connection.patientId._id || connection.patientId.id,
-            name: connection.patientId.name || 'Paciente',
-            specialty: '',
-            lastMessage: 'Clique para conversar',
-            time: '',
-            unread: 0,
-            contactType: 'patient',
-            patient: connection.patientId,
-            connectionId: connection._id,
-          }));
+          const convList = connections.map(buildConversation);
           setConversations(convList);
+          if (routeConversationId) {
+            const selected = convList.find((conv) => conv.connectionId.toString() === routeConversationId.toString() || conv._id.toString() === routeConversationId.toString());
+            if (selected) {
+              setSelectedConversation(selected);
+            }
+          } else if (routePatient) {
+            const selected = convList.find((conv) => conv.patient?._id?.toString() === routePatient._id?.toString() || conv.patient?.id?.toString() === routePatient.id?.toString() || conv.id?.toString() === routePatient._id?.toString() || conv.id?.toString() === routePatient.id?.toString());
+            if (selected) {
+              setSelectedConversation(selected);
+            }
+          }
         }
       } catch (error) {
         console.error('Erro ao carregar conversas:', error);
@@ -138,39 +277,47 @@ export default function ChatScreen({ navigation, route }) {
     };
 
     loadConversations();
-  }, [user?.role, user?.professionalId]);
-
+    const unsubscribe = navigation.addListener('focus', loadConversations);
+    return unsubscribe;
+  }, [navigation, user?.role, user?.professionalId, routeConversationId, routePatient]);
   // Load messages when conversation is selected
   useEffect(() => {
     if (!selectedConversation) return;
 
     const loadMessages = async () => {
       try {
+        setMessages([]);
         setLoading(true);
         const connectionId = selectedConversation.connectionId;
 
         if (connectionId) {
-          // Set conversation with necessary IDs
           setConversation({
             _id: connectionId,
             professionalId: selectedConversation.professionalId,
             patientId: selectedConversation.patientId,
           });
 
-          // Load messages for this connection
-          const messagesResponse = await messagesAPI.getMessages(connectionId);
-          const formattedMessages = (messagesResponse.data || []).map(msg => ({
-            _id: msg._id,
-            text: msg.content,
-            sender: msg.senderType === 'patient' ? 'user' : 'professional',
-            timestamp: new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          setConversations((prev) => prev.map((conv) => {
+            if (conv.connectionId?.toString() !== connectionId.toString()) return conv;
+            return { ...conv, unread: 0 };
           }));
-          setMessages(formattedMessages);
 
-          // Scroll to end after loading messages
-          setTimeout(() => {
-            flatListRef.current?.scrollToEnd({ animated: false });
-          }, 100);
+          const messagesResponse = await messagesAPI.getMessages(connectionId);
+          const formattedMessages = (messagesResponse.data || [])
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .map(msg => {
+              const senderId = msg.senderId?._id || msg.senderId;
+              return {
+                _id: msg._id,
+                texto: msg.content,
+                hora: new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                status: msg.status || 'sent',
+                senderId,
+                isOutgoing: senderId?.toString() === user.id,
+                pending: false,
+              };
+            });
+          setMessages(formattedMessages);
         }
       } catch (error) {
         console.error('Erro ao carregar mensagens:', error);
@@ -217,39 +364,45 @@ export default function ChatScreen({ navigation, route }) {
 
       const messageData = {
         chatId: conversation._id,
-        senderId: user.id,
-        receiverId: user.role === 'patient' ? conversation.professionalId : conversation.patientId,
         text: inputText.trim(),
       };
 
-      // Send via Socket.IO
-      socketRef.current?.emit('sendMessage', messageData);
-
-      // Add to local messages immediately
+      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const tempId = `pending-${Date.now()}`;
       const newMessage = {
-        _id: Date.now().toString(),
-        text: inputText.trim(),
-        sender: 'user',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        _id: tempId,
+        texto: inputText.trim(),
+        hora: timestamp,
+        status: 'sent',
+        senderId: user.id,
+        isOutgoing: true,
+        pending: true,
       };
-      setMessages(prev => [...prev, newMessage]);
 
-      // Clear input and attachments
+      setMessages(prev => [newMessage, ...prev]);
+      setConversations((prev) => prev.map((conv) => {
+        if (conv.connectionId?.toString() !== conversation._id.toString()) return conv;
+        return {
+          ...conv,
+          lastMessage: newMessage.texto,
+          time: newMessage.hora,
+          unread: 0,
+        };
+      }));
+
+      socketRef.current?.emit('sendMessage', messageData, (response) => {
+        if (response?.success && response.message) {
+          setMessages(prev => prev.map(msg => msg._id === tempId ? {
+            ...msg,
+            _id: response.message._id,
+            status: response.message.status || msg.status,
+            pending: false,
+          } : msg));
+        }
+      });
       setInputText('');
       setAttachments([]);
 
-      // Scroll to bottom
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
-
-      // Send local notification
-      if (selectedConversation) {
-        sendLocalNotification(
-          'Mensagem enviada',
-          `Mensagem enviada para ${selectedConversation.name}`
-        );
-      }
     } catch (error) {
       console.error('Erro ao enviar mensagem:', error);
       Alert.alert('Erro', 'Falha ao enviar mensagem. Tente novamente.');
@@ -260,129 +413,28 @@ export default function ChatScreen({ navigation, route }) {
 
   if (selectedConversation) {
     return (
-      <View style={[styles.chatContainer, { backgroundColor: colors.background }]}>
-        <View style={[styles.chatHeader, { backgroundColor: colors.containerBg, borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
-          <BackButton onPress={() => setSelectedConversation(null)} />
-          <View style={styles.chatHeaderInfo}>
-            <Text style={[styles.chatHeaderName, { color: colors.text }]}>{selectedConversation.name}</Text>
-            <Text style={[styles.chatHeaderSpecialty, { color: colors.textSecondary }]}>{selectedConversation.specialty}</Text>
-          </View>
-          <Pressable onPress={() => navigation.navigate('Video', { contact: selectedConversation })}>
-            <Ionicons name="call" size={20} color={colors.primary} style={{ marginRight: 16 }} />
-          </Pressable>
-        </View>
-
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          renderItem={({ item }) => (
-            <View style={[styles.message, item.sender === 'user' ? styles.userMessage : styles.professionalMessage]}>
-              <Text style={[styles.messageText, { color: item.sender === 'user' ? '#ffffff' : colors.text }]}>{item.text}</Text>
-              <Text style={[styles.messageTime, { color: item.sender === 'user' ? 'rgba(255,255,255,0.7)' : colors.textTertiary }]}>{item.timestamp}</Text>
-            </View>
-          )}
-          keyExtractor={(item) => item._id || item.id}
-          style={styles.messagesList}
-          contentContainerStyle={styles.messagesContainer}
-          ListEmptyComponent={
-            loading || pollLoading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Carregando mensagens...</Text>
-              </View>
-            ) : (
-              <View style={styles.emptyContainer}>
-                <Ionicons name="chatbubble-outline" size={48} color={colors.textSecondary} />
-                <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Nenhuma mensagem ainda. Comece a conversa!</Text>
-              </View>
-            )
-          }
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
-          onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
-        />
-
-        <View style={[styles.inputContainer, { backgroundColor: colors.containerBg, borderTopColor: colors.border, borderTopWidth: 1 }]}>
-          {/* Attachments preview */}
-          {attachments.length > 0 && (
-            <View style={styles.attachmentsContainer}>
-              {attachments.map((attachment, index) => (
-                <View key={index} style={[styles.attachmentItem, { backgroundColor: colors.cardHover }]}>
-                  {attachment.type === 'image' && (
-                    <Image source={{ uri: attachment.uri }} style={styles.attachmentImage} />
-                  )}
-                  <View style={styles.attachmentInfo}>
-                    <Text style={[styles.attachmentName, { color: colors.text }]} numberOfLines={1}>
-                      {attachment.fileName}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => removeAttachment(index)}
-                    style={styles.removeAttachment}
-                  >
-                    <Ionicons name="close" size={16} color={colors.textSecondary} />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-
-          <View style={styles.inputRow}>
-            <TouchableOpacity
-              onPress={() => setShowAttachmentPicker(true)}
-              style={[styles.actionButton, { backgroundColor: colors.cardHover }]}
-            >
-              <Ionicons name="attach" size={20} color={colors.primary} />
-            </TouchableOpacity>
-
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.cardHover, color: colors.text, borderColor: colors.border }]}
-              placeholder="Digite uma mensagem..."
-              placeholderTextColor={colors.textTertiary}
-              value={inputText}
-              onChangeText={setInputText}
-              multiline
-              maxLength={500}
-            />
-
-            <TouchableOpacity
-              onPress={() => setShowEmojiPicker(true)}
-              style={[styles.actionButton, { backgroundColor: colors.cardHover }]}
-            >
-              <Ionicons name="happy" size={20} color={colors.primary} />
-            </TouchableOpacity>
-
-            <Pressable
-              style={[styles.sendButton, { backgroundColor: (inputText.trim() || attachments.length > 0) ? colors.primary : colors.textTertiary }]}
-              onPress={sendMessage}
-              disabled={loading || (!inputText.trim() && attachments.length === 0)}
-            >
-              <Ionicons name={loading ? "time" : "send"} size={18} color="#ffffff" />
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Emoji Picker Modal */}
-        <EmojiPicker
-          visible={showEmojiPicker}
-          onSelectEmoji={handleEmojiSelect}
-          onClose={() => setShowEmojiPicker(false)}
-        />
-
-        {/* Attachment Picker Modal */}
-        <Modal
-          visible={showAttachmentPicker}
-          transparent={true}
-          animationType="slide"
-          onRequestClose={() => setShowAttachmentPicker(false)}
-        >
-          <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-            <AttachmentPicker
-              onSelectAttachment={handleAttachmentSelect}
-              onClose={() => setShowAttachmentPicker(false)}
-            />
-          </View>
-        </Modal>
-      </View>
+      <Chat
+        user={user}
+        conversation={selectedConversation}
+        messages={messages}
+        messageListRef={flatListRef}
+        inputText={inputText}
+        attachments={attachments}
+        loading={loading}
+        pollLoading={pollLoading}
+        showEmojiPicker={showEmojiPicker}
+        showAttachmentPicker={showAttachmentPicker}
+        setShowEmojiPicker={setShowEmojiPicker}
+        setShowAttachmentPicker={setShowAttachmentPicker}
+        handleEmojiSelect={handleEmojiSelect}
+        handleAttachmentSelect={handleAttachmentSelect}
+        removeAttachment={removeAttachment}
+        onSend={sendMessage}
+        onChangeText={setInputText}
+        onBack={() => setSelectedConversation(null)}
+        onCall={() => navigation.navigate('Video', { contact: selectedConversation })}
+        status={formatPresenceStatus(onlineUsers[getPresenceKey(selectedConversation?.id)])}
+      />
     );
   }
 
@@ -411,24 +463,45 @@ export default function ChatScreen({ navigation, route }) {
           renderItem={({ item }) => (
             <Pressable
               onPress={() => setSelectedConversation(item)}
-              style={[styles.conversationCard, { backgroundColor: colors.card, borderBottomColor: colors.border, borderBottomWidth: 1 }]}
+              style={[styles.conversationCard, { backgroundColor: 'transparent', borderBottomColor: colors.border, borderBottomWidth: 1 }]}
             >
               <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
                 <Ionicons name="person" size={20} color="#ffffff" />
               </View>
               <View style={styles.conversationContent}>
                 <View style={styles.conversationHeader}>
-                  <Text style={[styles.conversationName, { color: colors.text }]}>{item.name}</Text>
-                  <Text style={[styles.conversationTime, { color: colors.textTertiary }]}>{item.time}</Text>
+                  <View style={styles.conversationTitleBlock}>
+                    <Text style={[styles.conversationName, { color: colors.text }]}>{item.name}</Text>
+                    <View style={styles.presenceRow}>
+                      <View
+                        style={[
+                          styles.presenceDot,
+                          { backgroundColor: onlineUsers[item.id] ? '#25D366' : '#6B7280' },
+                        ]}
+                      />
+                      <Text
+                        style={[
+                          styles.presenceText,
+                          { color: onlineUsers[item.id]?.online ? '#25D366' : colors.textTertiary },
+                        ]}
+                      >
+                        {formatPresenceStatus(onlineUsers[item.id])}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.badgeColumn}>
+                    <Text style={[styles.conversationTime, { color: colors.textTertiary }]}>{item.time}</Text>
+                    {item.unread > 0 && (
+                      <View style={[styles.unreadBadge, { backgroundColor: colors.primary, marginTop: 8 }]}>
+                        <Text style={styles.unreadText}>{item.unread}</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
                 <Text style={[styles.conversationSpecialty, { color: colors.textTertiary }]}>{item.specialty}</Text>
                 <Text style={[styles.lastMessage, { color: colors.textSecondary }]} numberOfLines={1}>{item.lastMessage}</Text>
               </View>
-              {item.unread > 0 && (
-                <View style={[styles.unreadBadge, { backgroundColor: colors.primary }]}>
-                  <Text style={styles.unreadText}>{item.unread}</Text>
-                </View>
-              )}
+
             </Pressable>
           )}
           keyExtractor={(item) => item.id}
@@ -486,13 +559,23 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 12,
   },
-  userMessage: {
+  outgoingMessage: {
     alignSelf: 'flex-end',
     backgroundColor: '#007AFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 5,
+    marginLeft: 40,
   },
-  professionalMessage: {
+  incomingMessage: {
     alignSelf: 'flex-start',
-    backgroundColor: '#E5E5EA',
+    backgroundColor: '#2F2F2F',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderBottomLeftRadius: 5,
+    borderBottomRightRadius: 20,
+    marginRight: 40,
   },
   messageText: {
     fontSize: 14,
@@ -606,19 +689,46 @@ const styles = StyleSheet.create({
   conversationHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
+    alignItems: 'flex-start',
+    marginBottom: 6,
   },
   conversationName: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
   },
   conversationTime: {
     fontSize: 12,
   },
+  badgeColumn: {
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+  },
   conversationSpecialty: {
     fontSize: 12,
     marginBottom: 2,
+  },
+  conversationTitleBlock: {
+    flexDirection: 'column',
+    flex: 1,
+  },
+  badgeColumn: {
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+  },
+  presenceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  presenceDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 8,
+    marginRight: 6,
+  },
+  presenceText: {
+    fontSize: 11,
+    fontWeight: '500',
   },
   lastMessage: {
     fontSize: 13,

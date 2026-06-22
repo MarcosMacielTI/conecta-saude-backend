@@ -13,7 +13,7 @@ const appointmentSchema = new mongoose.Schema({
     },
     videoLink: {
         type: String,
-        required: false,
+        required: false, 
         description: 'Jitsi Meet link for video consultation'
     },
     notes: {

@@ -42,6 +42,7 @@
   "private": true,
   "devDependencies": {
     "@react-native-community/cli-server-api": "^13.0.1",
+    "@types/react": "~19.1.10",
     "babel-preset-expo": "~11.0.0",
     "expo-module-scripts": "^4.0.0",
     "metro": "~0.81.0",

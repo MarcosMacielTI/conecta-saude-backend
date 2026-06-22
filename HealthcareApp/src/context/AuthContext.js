@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authService } from '../services/api';
+import { authService, setAuthToken } from '../services/api';
 
 export const AuthContext = createContext();
 
@@ -23,8 +23,24 @@ export const AuthProvider = ({ children }) => {
 
       if (savedToken) {
         setToken(savedToken);
-        setUser(savedUser ? JSON.parse(savedUser) : null);
-        console.log('Auth state restored successfully');
+        setAuthToken(savedToken);
+        if (savedUser) {
+          setUser(JSON.parse(savedUser));
+        }
+        try {
+          const response = await authService.me();
+          const authenticatedUser = response.data;
+          setUser(authenticatedUser);
+          await AsyncStorage.setItem('user', JSON.stringify(authenticatedUser));
+          console.log('Auth state restored successfully via /auth/me');
+        } catch (authError) {
+          console.warn('Failed to validate saved token, clearing auth state:', authError.response?.data || authError.message);
+          await AsyncStorage.removeItem('token');
+          await AsyncStorage.removeItem('user');
+          setAuthToken(null);
+          setToken(null);
+          setUser(null);
+        }
       } else {
         console.log('No saved auth data found');
       }
@@ -43,6 +59,7 @@ export const AuthProvider = ({ children }) => {
 
       await AsyncStorage.setItem('token', token);
       await AsyncStorage.setItem('user', JSON.stringify(user));
+      setAuthToken(token);
 
       setToken(token);
       setUser(user);
@@ -91,6 +108,7 @@ export const AuthProvider = ({ children }) => {
 
       await AsyncStorage.setItem('token', token);
       await AsyncStorage.setItem('user', JSON.stringify(user));
+      setAuthToken(token);
 
       setToken(token);
       setUser(user);
@@ -107,6 +125,7 @@ export const AuthProvider = ({ children }) => {
     try {
       await AsyncStorage.removeItem('token');
       await AsyncStorage.removeItem('user');
+      setAuthToken(null);
       setToken(null);
       setUser(null);
     } catch (e) {
@@ -132,7 +151,7 @@ export const AuthProvider = ({ children }) => {
     user,
     token,
     isLoading,
-    isAuthenticated: !!token,
+    isAuthenticated: !!token && !!user,
     login,
     register,
     googleLogin,

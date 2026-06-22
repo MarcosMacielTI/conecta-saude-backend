@@ -61,11 +61,20 @@ api.interceptors.response.use(
   }
 );
 
+export const setAuthToken = (token) => {
+  if (token) {
+    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  } else {
+    delete api.defaults.headers.common['Authorization'];
+  }
+};
+
 export const API_BASE_URL = API_URL;
 export const authService = {
   register: (data) => api.post('/auth/register', data),
   login: (email, password) => api.post('/auth/login', { email, password }),
   googleAuth: (idToken) => api.post('/auth/google/mobile', { idToken }),
+  me: () => api.get('/auth/me'),
   requestPasswordReset: (email) => api.post('/auth/forgot-password', { email }),
   resetPassword: (token, password) => api.post('/auth/reset-password', { token, password }),
 };

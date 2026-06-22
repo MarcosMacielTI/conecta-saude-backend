@@ -1,7 +1,4 @@
 {
-  "devDependencies": {
-    "@expo/webpack-config": "^19.0.0"
-  },
   "dependencies": {
     "react-native-safe-area-context": "^5.7.0"
   }

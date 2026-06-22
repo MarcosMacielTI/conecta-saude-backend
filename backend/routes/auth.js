@@ -118,6 +118,14 @@ router.post('/login', async (req, res) => {
 
         // Do not auto-link patients on login. Connections are created explicitly on subscription or connect flow.
 
+        if (user.role === 'professional' && !user.professionalId) {
+            const professional = await Professional.findOne({ email: user.email });
+            if (professional) {
+                user.professionalId = professional._id;
+                await user.save();
+            }
+        }
+
         const token = generateToken(user);
         res.json({
             token,
@@ -140,8 +148,16 @@ router.post('/login', async (req, res) => {
 
 router.get('/me', verifyToken, async (req, res) => {
     try {
-        const user = await User.findById(req.user.id);
+        let user = await User.findById(req.user.id);
         if (!user) return res.status(404).json({ error: 'User not found' });
+
+        if (user.role === 'professional' && !user.professionalId) {
+            const professional = await Professional.findOne({ email: user.email });
+            if (professional) {
+                user.professionalId = professional._id;
+                await user.save();
+            }
+        }
 
         res.json({
             _id: user._id,

@@ -11,10 +11,10 @@ export const API_BASE_URL = `${BASE_URL}/api`;
 export const BASE_API_URL = BASE_URL;
 
 console.log('🔧 API Config:', {
-  expoExtra,
-  apiUrl,
-  BASE_URL,
-  API_BASE_URL
+    expoExtra,
+    apiUrl,
+    BASE_URL,
+    API_BASE_URL
 });
 
 const api = axios.create({
@@ -88,6 +88,7 @@ export const messagesAPI = {
     sendMessage: (content, connectionId) => api.post('/messages', { content, connectionId }),
     getMessages: (connectionId) => api.get(`/messages/${connectionId}`),
     getConversation: () => api.get('/conversation'),
+    getConversations: () => api.get('/conversations'),
 };
 
 export const subscriptionsAPI = {

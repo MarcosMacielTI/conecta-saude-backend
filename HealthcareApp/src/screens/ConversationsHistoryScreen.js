@@ -19,12 +19,9 @@ export default function ConversationsHistoryScreen({ navigation }) {
     const fetchConversations = async () => {
         try {
             setLoading(true);
-            // For now, we'll get the current conversation
-            // In the future, we might need an endpoint to get all conversations for a user
-            const response = await messagesAPI.getConversation();
-            if (response.data) {
-                setConversations([response.data]);
-            }
+            const response = await messagesAPI.getConversations();
+            const conversationsResponse = response.data?.conversations || [];
+            setConversations(conversationsResponse);
         } catch (error) {
             console.error('Error fetching conversations:', error);
             Alert.alert('Erro', 'Não foi possível carregar as conversas.');

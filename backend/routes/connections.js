@@ -1,26 +1,13 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
 const Connection = require('../models/Connection');
 const User = require('../models/User');
 const Professional = require('../models/Professional');
+const { verifyToken, hasActivePlan } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 
-const authenticateToken = (req, res, next) => {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Access token required' });
-
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-        req.user = decoded;
-        next();
-    } catch (err) {
-        res.status(403).json({ error: 'Invalid token' });
-    }
-};
-
 // POST /connect - connect a patient to a professional
-router.post('/connect', authenticateToken, async (req, res) => {
+router.post('/connect', verifyToken, async (req, res) => {
     const { professionalId } = req.body;
     const patientId = req.user.id;
 
@@ -32,8 +19,7 @@ router.post('/connect', authenticateToken, async (req, res) => {
             return res.status(403).json({ error: 'Only patients can create a connection' });
         }
 
-        const planValue = String(patient.plan || '').trim().toLowerCase();
-        if (!patient.plan || planValue === 'sem plano' || planValue === 'semplano') {
+        if (!hasActivePlan(patient.plan)) {
             return res.status(403).json({ error: 'É necessário possuir um plano ativo para conectar com um profissional.' });
         }
 
@@ -64,7 +50,7 @@ router.post('/connect', authenticateToken, async (req, res) => {
 });
 
 // GET /professional/:id/patients - get patients connected to a professional
-router.get('/professional/:id/patients', authenticateToken, async (req, res) => {
+router.get('/professional/:id/patients', verifyToken, async (req, res) => {
     try {
         const connections = await Connection.find({ professionalId: req.params.id }).populate('patientId', 'name email cpf plan consultationsLeft');
         const patients = connections.map((item) => item.patientId);
@@ -75,7 +61,7 @@ router.get('/professional/:id/patients', authenticateToken, async (req, res) => 
 });
 
 // GET /patient/:id/professional - get professional for a patient
-router.get('/patient/:id/professional', authenticateToken, async (req, res) => {
+router.get('/patient/:id/professional', verifyToken, async (req, res) => {
     try {
         const connection = await Connection.findOne({ patientId: req.params.id }).populate('professionalId', 'name email specialty price availability');
         if (!connection) return res.status(404).json({ error: 'Connection not found' });
@@ -86,7 +72,7 @@ router.get('/patient/:id/professional', authenticateToken, async (req, res) => {
 });
 
 // GET /patients/search?q= - search patients by name, email, cpf
-router.get('/patients/search', authenticateToken, async (req, res) => {
+router.get('/patients/search', verifyToken, async (req, res) => {
     try {
         const { q = '', professionalId } = req.query;
         const regex = new RegExp(q, 'i');
@@ -111,7 +97,7 @@ router.get('/patients/search', authenticateToken, async (req, res) => {
 });
 
 // GET /professionals/search?q= - search professionals by name or email
-router.get('/professionals/search', authenticateToken, async (req, res) => {
+router.get('/professionals/search', verifyToken, async (req, res) => {
     try {
         const { q = '' } = req.query;
         const regex = new RegExp(q, 'i');
@@ -130,17 +116,35 @@ router.get('/professionals/search', authenticateToken, async (req, res) => {
 });
 
 // GET /connections - get current user's connections
-router.get('/connections', authenticateToken, async (req, res) => {
+router.get('/connections', verifyToken, async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
         if (!user) return res.status(404).json({ error: 'User not found' });
 
         if (user.role === 'patient') {
             const connection = await Connection.findOne({ patientId: user._id }).populate('professionalId', 'name email specialty price availability');
-            return res.json({ connections: connection ? [connection] : [] });
+            if (!connection) return res.json({ connections: [] });
+
+            const professionalUser = await User.findOne({ professionalId: connection.professionalId._id }).select('_id');
+            const connectionObj = connection.toObject();
+            connectionObj.professionalId = {
+                ...connectionObj.professionalId,
+                userId: professionalUser?._id,
+            };
+            return res.json({ connections: [connectionObj] });
         }
 
-        const connections = await Connection.find({ professionalId: user.professionalId }).populate('patientId', 'name email cpf plan consultationsLeft');
+        let professionalId = user.professionalId;
+        if (!professionalId) {
+            const professional = await Professional.findOne({ email: user.email });
+            professionalId = professional?._id;
+        }
+
+        if (!professionalId) {
+            return res.status(404).json({ error: 'Professional account not linked to professional data' });
+        }
+
+        const connections = await Connection.find({ professionalId }).populate('patientId', 'name email cpf plan consultationsLeft');
         res.json({ connections });
     } catch (err) {
         res.status(400).json({ error: err.message });

@@ -1,28 +1,14 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
 const Connection = require('../models/Connection');
 const Message = require('../models/Message');
 const User = require('../models/User');
 const Professional = require('../models/Professional');
+const { verifyToken, hasActivePlan } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 
-// Middleware to verify JWT token
-const authenticateToken = (req, res, next) => {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Access token required' });
-
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-        req.user = decoded;
-        next();
-    } catch (err) {
-        res.status(403).json({ error: 'Invalid token' });
-    }
-};
-
 // POST /messages - Send a message (with plan verification for patients)
-router.post('/messages', authenticateToken, async (req, res) => {
+router.post('/messages', verifyToken, async (req, res) => {
     const { content, connectionId } = req.body;
     const senderId = req.user.id;
 
@@ -35,11 +21,21 @@ router.post('/messages', authenticateToken, async (req, res) => {
         if (!sender) return res.status(404).json({ error: 'Sender not found' });
 
         // Check if patient has active plan
-        if (sender.role === 'patient' && !sender.plan) {
+        if (sender.role === 'patient' && !hasActivePlan(sender.plan)) {
             return res.status(403).json({
                 error: 'Active plan required to send messages. Please purchase a plan.',
                 code: 'NO_PLAN'
             });
+        }
+
+        let senderProfessionalId = sender.professionalId;
+        if (sender.role === 'professional' && !senderProfessionalId) {
+            const professional = await Professional.findOne({ email: sender.email });
+            senderProfessionalId = professional?._id;
+            if (senderProfessionalId) {
+                sender.professionalId = senderProfessionalId;
+                await sender.save();
+            }
         }
 
         const connection = await Connection.findById(connectionId);
@@ -47,7 +43,7 @@ router.post('/messages', authenticateToken, async (req, res) => {
 
         const isParticipant =
             (sender.role === 'patient' && connection.patientId.toString() === senderId) ||
-            (sender.role === 'professional' && connection.professionalId.toString() === sender.professionalId?.toString());
+            (sender.role === 'professional' && senderProfessionalId && connection.professionalId.toString() === senderProfessionalId.toString());
 
         if (!isParticipant) return res.status(403).json({ error: 'Access denied' });
 
@@ -59,6 +55,7 @@ router.post('/messages', authenticateToken, async (req, res) => {
             receiverId,
             senderType: sender.role,
             content: content.trim(),
+            status: 'sent',
         });
 
         await message.save();
@@ -71,6 +68,7 @@ router.post('/messages', authenticateToken, async (req, res) => {
                 receiverId: message.receiverId,
                 senderType: message.senderType,
                 content: message.content,
+                status: message.status,
                 timestamp: message.timestamp,
             },
         });
@@ -80,7 +78,7 @@ router.post('/messages', authenticateToken, async (req, res) => {
 });
 
 // GET /messages/:connectionId - Get messages for a connection
-router.get('/messages/:connectionId', authenticateToken, async (req, res) => {
+router.get('/messages/:connectionId', verifyToken, async (req, res) => {
     const { connectionId } = req.params;
     const userId = req.user.id;
 
@@ -91,8 +89,18 @@ router.get('/messages/:connectionId', authenticateToken, async (req, res) => {
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ error: 'User not found' });
 
+        let userProfessionalId = user.professionalId;
+        if (user.role === 'professional' && !userProfessionalId) {
+            const professional = await Professional.findOne({ email: user.email });
+            userProfessionalId = professional?._id;
+            if (userProfessionalId) {
+                user.professionalId = userProfessionalId;
+                await user.save();
+            }
+        }
+
         const isParticipant = (user.role === 'patient' && connection.patientId.toString() === userId) ||
-            (user.role === 'professional' && connection.professionalId.toString() === user.professionalId?.toString());
+            (user.role === 'professional' && userProfessionalId && connection.professionalId.toString() === userProfessionalId.toString());
 
         if (!isParticipant) return res.status(403).json({ error: 'Access denied' });
 
@@ -107,7 +115,7 @@ router.get('/messages/:connectionId', authenticateToken, async (req, res) => {
 });
 
 // GET /conversation - Get current connection for logged-in user
-router.get('/conversation', authenticateToken, async (req, res) => {
+router.get('/conversation', verifyToken, async (req, res) => {
     const userId = req.user.id;
 
     try {
@@ -121,12 +129,79 @@ router.get('/conversation', authenticateToken, async (req, res) => {
         }
 
         if (user.role === 'professional') {
-            const connections = await Connection.find({ professionalId: user.professionalId })
+            let userProfessionalId = user.professionalId;
+            if (!userProfessionalId) {
+                const professional = await Professional.findOne({ email: user.email });
+                userProfessionalId = professional?._id;
+                if (userProfessionalId) {
+                    user.professionalId = userProfessionalId;
+                    await user.save();
+                }
+            }
+
+            const connections = await Connection.find({ professionalId: userProfessionalId })
                 .populate('patientId', 'name email cpf plan consultationsLeft');
             return res.json({ connections });
         }
 
         res.json({ connection: null });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// GET /conversations - Get conversations list for logged-in user
+router.get('/conversations', verifyToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        const buildConversation = async (connection) => {
+            const lastMessage = await Message.findOne({ connectionId: connection._id }).sort({ timestamp: -1 });
+            const unreadCount = await Message.countDocuments({
+                connectionId: connection._id,
+                receiverId: user._id,
+                status: { $in: ['sent', 'delivered'] },
+            });
+            return {
+                _id: connection._id,
+                connectionId: connection._id,
+                updatedAt: lastMessage?.timestamp || connection.createdAt,
+                lastMessage: lastMessage ? lastMessage.content : null,
+                unreadCount,
+                professionalId: connection.professionalId,
+                patientId: connection.patientId,
+            };
+        };
+
+        if (user.role === 'patient') {
+            const connection = await Connection.findOne({ patientId: user._id }).populate('professionalId', 'name email specialty price availability');
+            if (!connection) return res.json({ conversations: [] });
+            const professionalUser = await User.findOne({ professionalId: connection.professionalId._id }).select('_id');
+            const conversation = await buildConversation(connection);
+            if (professionalUser) {
+                conversation.professionalUserId = professionalUser._id;
+            }
+            return res.json({ conversations: [conversation] });
+        }
+
+        let userProfessionalId = user.professionalId;
+        if (user.role === 'professional' && !userProfessionalId) {
+            const professional = await Professional.findOne({ email: user.email });
+            userProfessionalId = professional?._id;
+            if (userProfessionalId) {
+                user.professionalId = userProfessionalId;
+                await user.save();
+            }
+        }
+
+        if (!userProfessionalId) {
+            return res.status(404).json({ error: 'Professional account not linked to professional data' });
+        }
+
+        const connections = await Connection.find({ professionalId: userProfessionalId }).populate('patientId', 'name email cpf plan consultationsLeft');
+        const conversations = await Promise.all(connections.map(buildConversation));
+        res.json({ conversations });
     } catch (err) {
         res.status(400).json({ error: err.message });
     }

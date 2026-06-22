@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, Text, View, Pressable, ActivityIndicator } from
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from './src/context/AuthContext';
 import { useTheme } from './src/context/ThemeContext';
-import { professionalsAPI } from './api';
+import { professionalsAPI, messagesAPI } from './api';
 
 function getGreeting() {
     const hour = new Date().getHours();
@@ -18,6 +18,7 @@ export default function ProfessionalScreen({ navigation }) {
     const { colors } = useTheme();
     const [patients, setPatients] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
 
     const professionalName = user?.name || 'Profissional';
     const greeting = getGreeting();
@@ -49,8 +50,32 @@ export default function ProfessionalScreen({ navigation }) {
             }
         };
 
-        fetchPatients();
-    }, [user]);
+        const fetchUnreadMessagesCount = async () => {
+            try {
+                const response = await messagesAPI.getConversations();
+                const conversations = response.data?.conversations || [];
+                const unreadTotal = conversations.reduce((sum, conv) => sum + (conv.unreadCount || 0), 0);
+                setUnreadMessagesCount(unreadTotal);
+            } catch (error) {
+                console.error('Erro ao buscar contagem de mensagens não lidas:', error);
+                setUnreadMessagesCount(0);
+            }
+        };
+
+        const fetchAllData = async () => {
+            await Promise.all([fetchPatients(), fetchUnreadMessagesCount()]);
+        };
+
+        fetchAllData();
+
+        const unsubscribe = navigation.addListener('focus', fetchUnreadMessagesCount);
+        const intervalId = setInterval(fetchUnreadMessagesCount, 15000);
+
+        return () => {
+            unsubscribe();
+            clearInterval(intervalId);
+        };
+    }, [user, navigation]);
 
     return (
         <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={{ paddingBottom: 100 }}>
@@ -100,7 +125,7 @@ export default function ProfessionalScreen({ navigation }) {
                             </View>
                             <View>
                                 <Text style={styles.summaryLabel}>Mensagens</Text>
-                                <Text style={styles.summaryValue}>{patients.length > 0 ? Math.floor(patients.length / 2) : 0}</Text>
+                                <Text style={styles.summaryValue}>{unreadMessagesCount}</Text>
                             </View>
                         </View>
                     </View>
@@ -172,19 +197,50 @@ export default function ProfessionalScreen({ navigation }) {
                                 </Pressable>
                                 <View style={{ flexDirection: 'column', alignItems: 'flex-end' }}>
                                     <Pressable
-                                        style={[styles.smallAction, { backgroundColor: colors.primary }]}
+                                        style={styles.iconButton}
                                         onPress={() => navigation.navigate('Video', { patient })}
                                     >
-                                        <Ionicons name="videocam" size={16} color="white" />
+                                        <Ionicons
+                                            name="videocam"
+                                            size={22}
+                                            color={colors.primary}
+                                        />
                                     </Pressable>
+
                                     <Pressable
-                                        style={[styles.smallAction, { backgroundColor: colors.cardHover, marginTop: 8 }]}
+                                        style={[styles.iconButton, { marginTop: 8 }]}
                                         onPress={() => navigation.navigate('ProfChat', { patient })}
                                     >
-                                        <Ionicons name="chatbubble" size={16} color={colors.primary} />
+                                        <Ionicons
+                                            name="chatbubble"
+                                            size={22}
+                                            color={colors.primary}
+                                        />
                                     </Pressable>
-                                    <View style={[styles.statusBadge, { backgroundColor: patient.status === 'Confirmado' ? `${colors.success}20` : `${colors.warning}20`, marginTop: 8 }]}>
-                                        <Text style={[styles.statusText, { color: patient.status === 'Confirmado' ? colors.success : colors.warning }]}>
+
+                                    <View
+                                        style={[
+                                            styles.statusBadge,
+                                            {
+                                                backgroundColor:
+                                                    patient.status === 'Confirmado'
+                                                        ? `${colors.success}20`
+                                                        : `${colors.warning}20`,
+                                                marginTop: 8,
+                                            },
+                                        ]}
+                                    >
+                                        <Text
+                                            style={[
+                                                styles.statusText,
+                                                {
+                                                    color:
+                                                        patient.status === 'Confirmado'
+                                                            ? colors.success
+                                                            : colors.warning,
+                                                },
+                                            ]}
+                                        >
                                             {patient.status}
                                         </Text>
                                     </View>
@@ -348,5 +404,8 @@ const styles = StyleSheet.create({
     statusText: {
         fontSize: 11,
         fontWeight: '600',
+    },
+    iconButton: {
+        padding: 4,
     },
 });

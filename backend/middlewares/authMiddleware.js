@@ -2,6 +2,18 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Subscription = require('../models/Subscription');
 
+const NO_PLAN_VALUES = new Set(['sem plano', 'semplano', 'nenhum', 'none', 'no plan']);
+
+function normalizePlan(plan) {
+  if (!plan) return '';
+  return String(plan).trim().toLowerCase();
+}
+
+function hasActivePlan(plan) {
+  const normalized = normalizePlan(plan);
+  return normalized && !NO_PLAN_VALUES.has(normalized);
+}
+
 /**
  * Verify JWT token
  */
@@ -30,8 +42,8 @@ const verifyActivePlan = async (req, res, next) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Check if user has a plan
-    if (!user.plan) {
+    // Check if user has a valid plan
+    if (!hasActivePlan(user.plan)) {
       return res.status(403).json({
         error: 'No active plan. Please purchase a plan to access this feature.',
         code: 'NO_PLAN'
@@ -72,6 +84,13 @@ const verifyConsultationsLeft = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (!hasActivePlan(user.plan)) {
+      return res.status(403).json({
+        error: 'No active plan. Please purchase a plan to access this feature.',
+        code: 'NO_PLAN'
+      });
+    }
 
     if (!user.consultationsLeft || user.consultationsLeft <= 0) {
       return res.status(403).json({
@@ -160,4 +179,5 @@ module.exports = {
   verifyProfessional,
   verifyPatient,
   getPlanInfo,
+  hasActivePlan,
 };
