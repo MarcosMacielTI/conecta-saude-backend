@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from './src/context/AuthContext';
 import { useThemeColors } from './src/hooks/useTheme';
 import Chat from './src/components/Chat';
+import AvailabilityModal from './src/components/AvailabilityModal';
 import { professionalsAPI, messagesAPI, connectionsAPI, BASE_API_URL } from './api';
 import { sendLocalNotification, requestNotificationPermissions } from './src/services/notifications';
 import { EmojiPicker } from './src/components/EmojiPicker';
@@ -39,6 +40,8 @@ export default function ChatScreen({ navigation, route }) {
   const [inputText, setInputText] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showAttachmentPicker, setShowAttachmentPicker] = useState(false);
+  const [showAvailability, setShowAvailability] = useState(false);
+  const [selectedProfessionalId, setSelectedProfessionalId] = useState(null);
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pollLoading, setPollLoading] = useState(false);
@@ -61,6 +64,145 @@ export default function ChatScreen({ navigation, route }) {
   const socketRef = useRef(null);
   const selectedConversationRef = useRef(null);
   const receivedMessageIdsRef = useRef(new Set());
+  const notificationTimersRef = useRef(new Map());
+  const pendingMarkAsReadRef = useRef(new Set());
+  const tabIdRef = useRef(`tab_${Math.random().toString(36).substring(2, 10)}`);
+
+  // Helper to track messages globally across tabs
+  const getReceivedMessagesKey = () => `received_messages_${user?.id || 'unknown'}`;
+  const getStoredReceivedMessageIds = () => {
+    if (typeof window === 'undefined' || !window.localStorage) return new Set();
+    try {
+      const stored = window.localStorage.getItem(getReceivedMessagesKey());
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch (e) {
+      console.warn('Failed to read received messages from storage:', e);
+      return new Set();
+    }
+  };
+
+  const isMessageAlreadyReceived = (messageId) => {
+    const id = messageId?.toString();
+    if (!id) return false;
+    if (receivedMessageIdsRef.current.has(id)) return true;
+    const storedSet = getStoredReceivedMessageIds();
+    return storedSet.has(id);
+  };
+
+  const broadcastMessageReceived = (messageId) => {
+    if (typeof window === 'undefined' || typeof window.BroadcastChannel === 'undefined') return;
+    try {
+      const channel = new window.BroadcastChannel('chat_message_events');
+      channel.postMessage({ messageId });
+      channel.close();
+    } catch (err) {
+      // ignore broadcast errors
+    }
+  };
+
+  const markMessageAsReceived = (messageId) => {
+    const id = messageId?.toString();
+    if (!id) return;
+    receivedMessageIdsRef.current.add(id);
+    if (typeof window === 'undefined' || !window.localStorage) return;
+
+    try {
+      const stored = getStoredReceivedMessageIds();
+      stored.add(id);
+      window.localStorage.setItem(getReceivedMessagesKey(), JSON.stringify(Array.from(stored)));
+      broadcastMessageReceived(id);
+    } catch (e) {
+      console.warn('Failed to track message:', e);
+    }
+  };
+
+  const markConversationAsRead = (chatId) => {
+    if (!chatId || !socketRef.current) return;
+
+    setMessages((prevMessages) => prevMessages.map((msg) => {
+      if (msg.status !== 'read' && !msg.isOutgoing) {
+        return { ...msg, status: 'read' };
+      }
+      return msg;
+    }));
+
+    setConversations((prevConversations) => prevConversations.map((conv) => {
+      if (conv.connectionId?.toString() === chatId?.toString()) {
+        return { ...conv, unread: 0 };
+      }
+      return conv;
+    }));
+
+    socketRef.current.emit('markAsRead', chatId);
+  };
+
+  const scheduleNotificationIfNeeded = (message, senderName) => {
+    const messageId = message._id?.toString();
+    if (!messageId || message.status === 'read') return;
+
+    if (notificationTimersRef.current.has(messageId)) {
+      clearTimeout(notificationTimersRef.current.get(messageId));
+      notificationTimersRef.current.delete(messageId);
+    }
+
+    const timer = setTimeout(() => {
+      notificationTimersRef.current.delete(messageId);
+      const title = 'Nova mensagem';
+      const body = senderName ? `Nova mensagem de ${senderName}` : 'Você recebeu uma nova mensagem';
+      sendLocalNotification(title, body, { messageId });
+      markMessageAsReceived(messageId);
+    }, 150);
+
+    notificationTimersRef.current.set(messageId, timer);
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const syncFromStorage = () => {
+      const storedIds = getStoredReceivedMessageIds();
+      receivedMessageIdsRef.current = new Set([...receivedMessageIdsRef.current, ...storedIds]);
+    };
+
+    syncFromStorage();
+
+    const onStorage = (event) => {
+      if (event.key !== getReceivedMessagesKey() || !event.newValue) return;
+      try {
+        const ids = new Set(JSON.parse(event.newValue));
+        receivedMessageIdsRef.current = new Set([...receivedMessageIdsRef.current, ...ids]);
+      } catch (err) {
+        console.warn('Failed to sync received messages from storage event:', err);
+      }
+    };
+
+    window.addEventListener('storage', onStorage);
+
+    let broadcastChannel;
+    try {
+      if (typeof window.BroadcastChannel !== 'undefined') {
+        broadcastChannel = new window.BroadcastChannel('chat_message_events');
+        broadcastChannel.onmessage = (event) => {
+          const messageId = event.data?.messageId?.toString();
+          if (!messageId) return;
+          receivedMessageIdsRef.current.add(messageId);
+          if (notificationTimersRef.current.has(messageId)) {
+            clearTimeout(notificationTimersRef.current.get(messageId));
+            notificationTimersRef.current.delete(messageId);
+          }
+        };
+      }
+    } catch (err) {
+      console.warn('BroadcastChannel unavailable:', err);
+    }
+
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      if (broadcastChannel) {
+        broadcastChannel.close();
+      }
+    };
+  }, [user?.id]);
 
   // Initialize notifications
   useEffect(() => {
@@ -85,6 +227,12 @@ export default function ChatScreen({ navigation, route }) {
 
       socket.on('connect', () => {
         console.log('Connected to Socket.IO', socket.id);
+        const activeConversation = selectedConversationRef.current;
+        const chatId = activeConversation?.connectionId || activeConversation?._id;
+        if (chatId) {
+          socket.emit('joinChat', chatId);
+          socket.emit('markAsRead', chatId);
+        }
       });
 
       socket.on('connect_error', (error) => {
@@ -134,15 +282,45 @@ export default function ChatScreen({ navigation, route }) {
       });
 
       socket.on('receiveMessage', (message) => {
-        if (!message?._id || message.senderId?.toString() === user.id?.toString()) return;
-        const messageKey = message._id.toString();
-        if (receivedMessageIdsRef.current.has(messageKey)) return;
-        receivedMessageIdsRef.current.add(messageKey);
+        console.log('📨 receiveMessage event received:', {
+          messageId: message._id,
+          senderId: message.senderId,
+          senderIdType: typeof message.senderId,
+          senderIdToString: message.senderId?.toString?.(),
+          currentUserId: user.id,
+          userIdType: typeof user.id,
+          userIdToString: user.id?.toString?.(),
+          comparison: message.senderId?.toString() === user.id?.toString(),
+          connectionId: message.connectionId,
+        });
+
+        if (!message?._id) {
+          console.log('⚠️ Ignored: no message ID');
+          return;
+        }
+
+        if (message.senderId?.toString() === user.id?.toString()) {
+          console.log('⚠️ Ignored: message from self');
+          return;
+        }
+
+        const messageId = message._id?.toString();
+        if (!messageId || isMessageAlreadyReceived(messageId)) {
+          console.log('⚠️ Ignored: already received', messageId);
+          return;
+        }
+        markMessageAsReceived(messageId);
 
         const activeConversation = selectedConversationRef.current;
         const messageConnectionId = message.connectionId?.toString();
         const activeConnectionId = activeConversation?._id?.toString() || activeConversation?.connectionId?.toString();
 
+        console.log('📍 Message routing:', {
+          messageConnectionId,
+          activeConnectionId,
+          isActiveConversation: activeConnectionId === messageConnectionId,
+          activeConversationName: activeConversation?.name
+        });
         const timestamp = new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const formattedMessage = {
           _id: message._id,
@@ -154,17 +332,7 @@ export default function ChatScreen({ navigation, route }) {
           pending: false,
         };
 
-        if (activeConnectionId === messageConnectionId) {
-          setMessages(prev => {
-            if (prev.some(msg => msg._id === formattedMessage._id)) return prev;
-            return [...prev, formattedMessage];
-          });
-        } else {
-          sendLocalNotification(
-            'Nova mensagem',
-            message.senderName ? `Nova mensagem de ${message.senderName}` : 'Você recebeu uma nova mensagem'
-          );
-        }
+        const isActiveConversation = activeConnectionId === messageConnectionId;
 
         setConversations((prev) => prev.map((conv) => {
           if (conv.connectionId.toString() !== messageConnectionId) return conv;
@@ -172,13 +340,34 @@ export default function ChatScreen({ navigation, route }) {
             ...conv,
             lastMessage: formattedMessage.texto,
             time: formattedMessage.hora,
-            unread: activeConnectionId === messageConnectionId ? 0 : (conv.unread || 0) + 1,
+            unread: isActiveConversation ? 0 : (conv.unread || 0) + 1,
           };
         }));
+
+        if (isActiveConversation) {
+          setMessages(prev => {
+            if (prev.some(msg => msg._id === formattedMessage._id)) {
+              console.log('⚠️ Message already in list:', formattedMessage._id);
+              return prev;
+            }
+            console.log('✅ Adding message to active conversation:', formattedMessage);
+            return [...prev, formattedMessage];
+          });
+
+          if (message.receiverId?.toString() === user.id?.toString()) {
+            console.log('🔵 Marking conversation as read');
+            markConversationAsRead(message.connectionId);
+          }
+        } else {
+          if (message.status !== 'read') {
+            console.log('🔔 Scheduling notification for inactive conversation');
+            scheduleNotificationIfNeeded(message, message.senderName);
+          }
+        }
       });
 
-      socket.on('messageStatusUpdate', ({ messageId, status }) => {
-        setMessages(prev => prev.map(msg => msg._id === messageId ? { ...msg, status } : msg));
+      socket.on('messageStatusUpdate', ({ messageId, status, connectionId }) => {
+        setMessages(prev => prev.map(msg => msg._id?.toString?.() === messageId?.toString?.() ? { ...msg, status } : msg));
       });
 
       socket.on('error', (error) => {
@@ -202,11 +391,13 @@ export default function ChatScreen({ navigation, route }) {
 
   // Join chat room when conversation changes
   useEffect(() => {
-    if (selectedConversation && conversation?._id) {
-      socketRef.current?.emit('joinChat', conversation._id);
-      socketRef.current?.emit('markAsRead', conversation._id);
+    const chatId = selectedConversation?.connectionId || selectedConversation?._id;
+    if (chatId) {
+      console.log('🚪 Joining chat room:', chatId);
+      socketRef.current?.emit('joinChat', chatId);
+      markConversationAsRead(chatId);
     }
-  }, [selectedConversation, conversation]);
+  }, [selectedConversation]);
 
   // Load conversations on mount or when user role changes
   useEffect(() => {
@@ -308,12 +499,12 @@ export default function ChatScreen({ navigation, route }) {
             .map(msg => {
               const senderId = msg.senderId?._id || msg.senderId;
               return {
-                _id: msg._id,
+                _id: msg._id?.toString?.() || msg._id,
                 texto: msg.content,
                 hora: new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 status: msg.status || 'sent',
-                senderId,
-                isOutgoing: senderId?.toString() === user.id,
+                senderId: senderId?.toString?.() || senderId,
+                isOutgoing: senderId?.toString?.() === user.id?.toString(),
                 pending: false,
               };
             });
@@ -432,7 +623,12 @@ export default function ChatScreen({ navigation, route }) {
         onSend={sendMessage}
         onChangeText={setInputText}
         onBack={() => setSelectedConversation(null)}
-        onCall={() => navigation.navigate('Video', { contact: selectedConversation })}
+        onCall={() => navigation.navigate('Video', {
+          contactId: selectedConversation.id,
+          contactName: selectedConversation.name,
+          contactType: selectedConversation.contactType || 'professional',
+          connectionId: selectedConversation.connectionId,
+        })}
         status={formatPresenceStatus(onlineUsers[getPresenceKey(selectedConversation?.id)])}
       />
     );
@@ -461,53 +657,91 @@ export default function ChatScreen({ navigation, route }) {
         <FlatList
           data={conversations}
           renderItem={({ item }) => (
-            <Pressable
-              onPress={() => setSelectedConversation(item)}
-              style={[styles.conversationCard, { backgroundColor: 'transparent', borderBottomColor: colors.border, borderBottomWidth: 1 }]}
-            >
-              <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
-                <Ionicons name="person" size={20} color="#ffffff" />
-              </View>
-              <View style={styles.conversationContent}>
-                <View style={styles.conversationHeader}>
-                  <View style={styles.conversationTitleBlock}>
-                    <Text style={[styles.conversationName, { color: colors.text }]}>{item.name}</Text>
-                    <View style={styles.presenceRow}>
-                      <View
-                        style={[
-                          styles.presenceDot,
-                          { backgroundColor: onlineUsers[item.id] ? '#25D366' : '#6B7280' },
-                        ]}
-                      />
-                      <Text
-                        style={[
-                          styles.presenceText,
-                          { color: onlineUsers[item.id]?.online ? '#25D366' : colors.textTertiary },
-                        ]}
-                      >
-                        {formatPresenceStatus(onlineUsers[item.id])}
-                      </Text>
+            <View>
+              <Pressable
+                onPress={() => setSelectedConversation(item)}
+                style={[styles.conversationCard, { backgroundColor: 'transparent', borderBottomColor: colors.border, borderBottomWidth: 1 }]}
+              >
+                <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
+                  <Ionicons name="person" size={18} color="#ffffff" />
+                </View>
+                <View style={styles.conversationContent}>
+                  <View style={styles.conversationHeader}>
+                    <View style={styles.conversationTitleBlock}>
+                      <Text style={[styles.conversationName, { color: colors.text }]}>{item.name}</Text>
+                      <View style={styles.presenceRow}>
+                        <View
+                          style={[
+                            styles.presenceDot,
+                            { backgroundColor: onlineUsers[item.id] ? '#25D366' : '#6B7280' },
+                          ]}
+                        />
+                        <Text
+                          style={[
+                            styles.presenceText,
+                            { color: onlineUsers[item.id]?.online ? '#25D366' : colors.textTertiary },
+                          ]}
+                        >
+                          {formatPresenceStatus(onlineUsers[item.id])}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.badgeColumn}>
+                      <Text style={[styles.conversationTime, { color: colors.textTertiary }]}>{item.time}</Text>
+                      {item.unread > 0 && (
+                        <View style={[styles.unreadBadge, { backgroundColor: colors.primary, marginTop: 8 }]}>
+                          <Text style={styles.unreadText}>{item.unread}</Text>
+                        </View>
+                      )}
                     </View>
                   </View>
-                  <View style={styles.badgeColumn}>
-                    <Text style={[styles.conversationTime, { color: colors.textTertiary }]}>{item.time}</Text>
-                    {item.unread > 0 && (
-                      <View style={[styles.unreadBadge, { backgroundColor: colors.primary, marginTop: 8 }]}>
-                        <Text style={styles.unreadText}>{item.unread}</Text>
-                      </View>
-                    )}
-                  </View>
+                  <Text style={[styles.conversationSpecialty, { color: colors.textTertiary }]}>{item.specialty}</Text>
+                  <Text style={[styles.lastMessage, { color: colors.textSecondary }]} numberOfLines={1}>{item.lastMessage}</Text>
                 </View>
-                <Text style={[styles.conversationSpecialty, { color: colors.textTertiary }]}>{item.specialty}</Text>
-                <Text style={[styles.lastMessage, { color: colors.textSecondary }]} numberOfLines={1}>{item.lastMessage}</Text>
-              </View>
+              </Pressable>
 
-            </Pressable>
+              {/* Ações rápidas - Câmera e Horários */}
+              {user?.role === 'patient' && (
+                <View style={[styles.quickActionsRow, { backgroundColor: colors.background, borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
+                  <Pressable
+                    style={[styles.quickActionBtn, { backgroundColor: colors.containerBg, borderColor: colors.primary, borderWidth: 1 }]}
+                    onPress={() => navigation.navigate('Video', {
+                      contactId: item.id,
+                      contactName: item.name,
+                      contactType: item.contactType || 'professional',
+                      connectionId: item.connectionId,
+                    })}
+                  >
+                    <Ionicons name="videocam" size={20} color={colors.primary} />
+                    <Text style={[styles.quickActionLabel, { color: colors.primary }]}>Chamar</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[styles.quickActionBtn, { backgroundColor: colors.containerBg }]}
+                    onPress={() => {
+                      setSelectedProfessionalId(item.professional || item.id);
+                      setShowAvailability(true);
+                    }}
+                  >
+                    <Ionicons name="calendar" size={20} color={colors.primary} />
+                    <Text style={[styles.quickActionLabel, { color: colors.primary }]}>Horários</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
           )}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingTop: 8 }}
         />
       )}
+
+      {/* Availability Modal */}
+      <AvailabilityModal
+        visible={showAvailability}
+        onClose={() => setShowAvailability(false)}
+        professionalId={selectedProfessionalId}
+        colors={colors}
+      />
     </View>
   );
 }
@@ -676,9 +910,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   avatarContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -742,6 +976,26 @@ const styles = StyleSheet.create({
   },
   unreadText: {
     color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  quickActionsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+    justifyContent: 'flex-end',
+    paddingRight: 60,
+  },
+  quickActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
+  },
+  quickActionLabel: {
     fontSize: 12,
     fontWeight: '600',
   },

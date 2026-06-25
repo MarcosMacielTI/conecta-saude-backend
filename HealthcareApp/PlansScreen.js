@@ -1,6 +1,7 @@
 import React, { useContext, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Platform, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Platform, Image, ActivityIndicator, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { useThemeColors } from './src/hooks/useTheme';
 import { AuthContext } from './src/context/AuthContext';
 import BackButton from './src/components/BackButton';
@@ -557,11 +558,70 @@ export default function PlansScreen({ navigation }) {
             {paymentResult.qrCodeUrl ? (
               <Image source={{ uri: paymentResult.qrCodeUrl }} style={styles.qrCodeImage} />
             ) : (
-              <ScrollView style={styles.qrCodeTextContainer}>
-                <Text style={[styles.qrCodeText, { color: colors.text }]}>
-                  {paymentResult.qrCodeData || paymentResult.pixCode || paymentResult.qrCode || JSON.stringify(paymentResult, null, 2)}
-                </Text>
-              </ScrollView>
+              (() => {
+                const data = paymentResult.qrCodeData || paymentResult.qrCode || paymentResult.pixCode;
+                if (!data) {
+                  return (
+                    <ScrollView style={styles.qrCodeTextContainer}>
+                      <Text style={[styles.qrCodeText, { color: colors.text }]}>{JSON.stringify(paymentResult, null, 2)}</Text>
+                    </ScrollView>
+                  );
+                }
+
+                // If looks like base64 without data URI, prefix it
+                const isBase64 = /^[A-Za-z0-9+/=\n\r]+$/.test(data.replace(/\s+/g, '')) && data.length > 100;
+                const uri = data.startsWith('data:') ? data : (isBase64 ? `data:image/png;base64,${data}` : null);
+
+                return (
+                  <>
+                    {uri ? (
+                      <Image source={{ uri }} style={styles.qrCodeImage} />
+                    ) : (
+                      <ScrollView style={styles.qrCodeTextContainer}>
+                        <Text style={[styles.qrCodeText, { color: colors.text }]}>{data}</Text>
+                      </ScrollView>
+                    )}
+
+                    <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+                      <Pressable
+                        style={[styles.modalButton, styles.modalConfirm, { backgroundColor: colors.primary }]}
+                        onPress={async () => {
+                          try {
+                            const toCopy = paymentResult.pixCode || paymentResult.qrCode || paymentResult.qrCodeData || '';
+                            await Clipboard.setStringAsync(toCopy);
+                            Alert.alert('Copiado', 'Código PIX copiado para a área de transferência.');
+                          } catch (e) {
+                            Alert.alert('Erro', 'Não foi possível copiar o código.');
+                          }
+                        }}
+                      >
+                        <Text style={[styles.modalButtonText, { color: '#fff' }]}>Copiar Código PIX</Text>
+                      </Pressable>
+
+                      {(paymentResult.qrCodeUrl || uri) ? (
+                        <Pressable
+                          style={[styles.modalButton, styles.modalCancel, { borderColor: colors.border }]}
+                          onPress={() => {
+                            const openUrl = paymentResult.qrCodeUrl || uri;
+                            try {
+                              if (typeof window !== 'undefined' && window.open) {
+                                window.open(openUrl, '_blank');
+                              } else {
+                                Linking.openURL(openUrl);
+                              }
+                            } catch (e) {
+                              console.error('Erro ao abrir URL:', e);
+                              Alert.alert('Erro', 'Não foi possível abrir o link.');
+                            }
+                          }}
+                        >
+                          <Text style={[styles.modalButtonText, { color: colors.text }]}>Abrir</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  </>
+                );
+              })()
             )}
             {paymentStatus ? (
               <Text style={[styles.paymentInfoText, { color: colors.textSecondary, marginBottom: 12 }]}>Status atual: {paymentStatus}</Text>
@@ -570,7 +630,7 @@ export default function PlansScreen({ navigation }) {
             <View style={styles.modalButtons}>
               <Pressable
                 style={[styles.modalButton, styles.modalCancel, { borderColor: colors.border }]}
-                onPress={() => { setPaymentModalVisible(false); setPaymentResult(null); setConfirmPlan(null); setPaymentStatus(null); }}
+                onPress={() => { setPaymentModalVisible(false); /* keep paymentResult so user can re-open QR if needed */ }}
               >
                 <Text style={[styles.modalButtonText, { color: colors.text }]}>Fechar</Text>
               </Pressable>
@@ -588,6 +648,15 @@ export default function PlansScreen({ navigation }) {
             </View>
           </View>
         </View>
+      )}
+      {/* Floating quick access to pending PIX payment (keeps paymentResult persisted until approved) */}
+      {paymentResult && paymentStatus !== 'approved' && !paymentModalVisible && (
+        <Pressable
+          style={[styles.floatingPaymentBtn, { backgroundColor: colors.primary }]}
+          onPress={() => setPaymentModalVisible(true)}
+        >
+          <Text style={[styles.floatingPaymentText, { color: '#fff' }]}>Pagamento PIX pendente — Ver QR</Text>
+        </Pressable>
       )}
     </View>
   );
@@ -890,6 +959,21 @@ const styles = StyleSheet.create({
   modalConfirm: {},
   modalButtonText: {
     fontSize: 14,
+    fontWeight: '700',
+  },
+  floatingPaymentBtn: {
+    position: 'absolute',
+    right: 20,
+    bottom: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 24,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+  },
+  floatingPaymentText: {
+    fontSize: 13,
     fontWeight: '700',
   },
 });

@@ -1,0 +1,57 @@
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0*   Trying 127.0.0.1:8083...
+* Established connection to 127.0.0.1 (127.0.0.1 port 8083) from 127.0.0.1 port 63693 
+* using HTTP/1.x
+> GET / HTTP/1.1
+> Host: 127.0.0.1:8083
+> User-Agent: curl/8.19.0
+> Accept: */*
+> 
+* Request completely sent off
+  0      0   0      0   0      0      0      0           00:01              0  0      0   0      0   0      0      0      0           00:02              0  0      0   0      0   0      0      0      0           00:03              0  0      0   0      0   0      0      0      0           00:04              0  0      0   0      0   0      0      0      0           00:05              0  0      0   0      0   0      0      0      0           00:06              0  0      0   0      0   0      0      0      0           00:07              0  0      0   0      0   0      0      0      0           00:08              0  0      0   0      0   0      0      0      0           00:09              0  0      0   0      0   0      0      0      0           00:10              0  0      0   0      0   0      0      0      0           00:11              0  0      0   0      0   0      0      0      0           00:12              0  0      0   0      0   0      0      0      0           00:13              0  0      0   0      0   0      0      0      0           00:14              0  0      0   0      0   0      0      0      0           00:15              0  0      0   0      0   0      0      0      0           00:16              0  0      0   0      0   0      0      0      0           00:17              0  0      0   0      0   0      0      0      0           00:18              0  0      0   0      0   0      0      0      0           00:19              0  0      0   0      0   0      0      0      0           00:20              0  0      0   0      0   0      0      0      0           00:21              0  0      0   0      0   0      0      0      0           00:22              0< HTTP/1.1 200 OK
+< Content-Type: text/html
+< Date: Tue, 23 Jun 2026 23:10:08 GMT
+< Connection: keep-alive
+< Keep-Alive: timeout=5
+< Content-Length: 1260
+< 
+{ [1260 bytes data]
+100   1260 100   1260   0      0     55      0   00:22   00:22            233100   1260 100   1260   0      0     55      0   00:22   00:22            233100   1260 100   1260   0      0     55      0   00:22   00:22            233
+* Connection #0 to host 127.0.0.1:8083 left intact
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>ConectaSaude</title>
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+  <script src="/index.bundle?platform=web&dev=true&hot=false&lazy=true&transform.engine=hermes&transform.routerRoot=app&unstable_transformProfile=hermes-stable" defer></script></body>
+</html>

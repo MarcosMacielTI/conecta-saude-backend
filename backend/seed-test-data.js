@@ -26,55 +26,9 @@ const patientsData = [
 async function createSeedData() {
   await mongoose.connect(MONGO_URI);
   console.log('Connected to', MONGO_URI);
-
-  const professional = await Professional.findOne() || new Professional(professionalData);
-  if (!professional._id) {
-    await professional.save();
-    console.log(`Professional created: ${professional.name}`);
-  } else {
-    console.log(`Existing professional found: ${professional.name}`);
-  }
-
-  const patientIds = [];
-  for (const patient of patientsData) {
-    const existingPatient = await User.findOne({ email: patient.email });
-    if (existingPatient) {
-      if (!existingPatient.professionalId) {
-        existingPatient.professionalId = professional._id;
-        await existingPatient.save();
-      }
-      patientIds.push(existingPatient._id);
-      console.log(`Existing patient preserved: ${existingPatient.email}`);
-      continue;
-    }
-
-    const hashedPassword = await bcrypt.hash(patient.password, 10);
-    const newPatient = new User({
-      name: patient.name,
-      email: patient.email,
-      password: hashedPassword,
-      role: 'patient',
-      cpf: patient.cpf,
-      plan: null,
-      consultationsLeft: 0,
-      professionalId: professional._id,
-    });
-    await newPatient.save();
-    patientIds.push(newPatient._id);
-    console.log(`Created patient: ${newPatient.email}`);
-  }
-
-  await Professional.findByIdAndUpdate(professional._id, {
-    $addToSet: { clients: { $each: patientIds } },
-  });
-
-  console.log('\n=== Dados de teste criados ===');
-  console.log('Profissional:');
-  console.log(`- Email: ${professionalData.email || 'não disponível'} | Senha: (use seu login de profissional no app)`);
-  console.log('\nPacientes:');
-  patientsData.forEach((patient) => {
-    console.log(`- ${patient.email} | senha: ${patient.password}`);
-  });
+  console.log('\n⚠️  TEST DATA SEEDING IS DISABLED ⚠️');
+  console.log('To use test users, manually create them via the app registration flow.');
+  console.log('Production mode: All test accounts should be removed from the database.');
 
   await mongoose.disconnect();
   console.log('Database disconnected');

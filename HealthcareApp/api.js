@@ -61,6 +61,7 @@ export const authAPI = {
     login: (email, password) => api.post('/auth/login', { email, password }),
     register: (name, email, password, cpf, role) => api.post('/auth/register', { name, email, password, cpf, role }),
     me: () => api.get('/auth/me'),
+    updateProfile: (data) => api.put('/auth/me', data),
 };
 
 export const professionalsAPI = {
@@ -110,4 +111,10 @@ export const appointmentsAPI = {
     create: (data) => api.post('/appointments', data),
     getAll: () => api.get('/appointments'),
     updateStatus: (id, status) => api.put(`/appointments/${id}`, { status }),
+};
+
+export const availabilityAPI = {
+    getMyAvailability: () => api.get('/availability'),
+    updateMyAvailability: (schedule) => api.put('/availability', { schedule }),
+    getProfessionalAvailability: (professionalId) => api.get(`/availability/${professionalId}`),
 };

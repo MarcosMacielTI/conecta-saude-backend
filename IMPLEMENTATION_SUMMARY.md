@@ -498,6 +498,107 @@ WS /socket.io
 - ✅ Verificação de plano
 - ✅ Headers de segurança
 - ✅ Validação de entrada
+
+---
+
+## 🎥 SISTEMA DE VÍDEO CHAMADA E AGENDAMENTO (NOVA IMPLEMENTAÇÃO)
+
+### 📦 Arquivos Criados
+```
+✅ backend/models/Availability.js                (Novo)
+✅ backend/routes/availability.js                (Novo)
+✅ HealthcareApp/VideoScreen_new.js              (Novo)
+✅ HealthcareApp/AvailabilityManagementScreen.js (Novo)
+✅ HealthcareApp/src/components/AvailabilityModal.js (Novo)
+✅ VIDEO_CALLING_AND_SCHEDULING_IMPLEMENTATION.md  (Novo)
+✅ QUICK_START_VIDEO_SCHEDULING.md                (Novo)
+```
+
+### 🔧 Arquivos Modificados
+```
+✅ backend/index.js                  (Rotas de availability registradas)
+✅ HealthcareApp/api.js              (3 métodos availabilityAPI adicionados)
+✅ HealthcareApp/ChatScreen.js       (Botões de ação rápida + modal integrado)
+✅ HealthcareApp/App.js              (Navegação atualizada + VideoScreen_new)
+```
+
+### ✨ Recursos Implementados
+
+#### Backend
+- ✅ Modelo de dados para disponibilidade (7 dias/semana)
+- ✅ 3 endpoints REST:
+  - `GET /api/availability/:professionalId` (público)
+  - `GET /api/availability` (autenticado)
+  - `PUT /api/availability` (autenticado, profissional)
+- ✅ Validação JWT
+- ✅ Verificação de role
+- ✅ Padrão padrão (Seg-Sex 08:00-17:00, Sáb 09:00-12:00)
+
+#### Frontend
+- ✅ Modal de visualização de horários (7 dias)
+- ✅ Tela de gerenciamento para profissionais
+- ✅ Integração Jitsi Meet em WebView
+- ✅ Sala de espera pré-chamada
+- ✅ Botões de ação rápida em conversas:
+  - 🎥 Chamar (inicia vídeo)
+  - 📅 Horários (visualiza disponibilidade)
+- ✅ Avatar reduzido (40x40, estilo WhatsApp)
+- ✅ Loading states e tratamento de erros
+
+### 📊 Estatísticas
+
+| Métrica | Valor |
+|---------|-------|
+| Arquivos Criados | 5 |
+| Arquivos Modificados | 4 |
+| Linhas de Código | ~1500+ |
+| Endpoints API Novos | 3 |
+| Componentes React Novos | 2 |
+| Telas Novos | 1 |
+| Rotas de Navegação | 1 |
+
+### 🔄 Fluxos de Usuário
+
+#### Paciente Vê Horários
+```
+ChatScreen (conversas)
+  ↓ [📅 Horários]
+AvailabilityModal (horários do profissional)
+  ↓ [Entendi]
+Volta
+```
+
+#### Paciente Inicia Vídeo
+```
+ChatScreen (conversas)
+  ↓ [🎥 Chamar]
+VideoScreen_new (sala de espera)
+  ↓ (prof. clica "Iniciar")
+Jitsi Meet (chamada)
+```
+
+#### Profissional Configura Horários
+```
+Menu
+  ↓ [Meus Horários]
+AvailabilityManagementScreen
+  ↓ (ativa dias, edita horários)
+  ↓ [Salvar Horários]
+API PUT /availability
+  ↓ Success/Error
+Volta
+```
+
+### 🎯 Próximos Passos
+
+- [ ] Adicionar botão de acesso em ProfessionalAgendaScreen
+- [ ] Time picker para edição customizada de horários
+- [ ] Validações de horário (startTime < endTime)
+- [ ] Notificações quando paciente chama
+- [ ] Histórico de chamadas
+- [ ] Gravação de sessões (feature Jitsi)
+- [ ] Suporte a timezones
+- [ ] Exceções de agenda (feriados)
 - ✅ Proteção contra XSS
 - ✅ Rate limiting (recomendado)
 

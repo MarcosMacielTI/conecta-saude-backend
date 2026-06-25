@@ -58,6 +58,7 @@ app.use('/api/subscriptions', require('./routes/subscriptions'));
 app.use('/api/payments', require('./routes/payments'));
 app.use('/api', require('./routes/messages'));
 app.use('/api', require('./routes/connections'));
+app.use('/api', require('./routes/availability'));
 
 // Alias endpoints under /api for exact requested paths
 app.get('/api/professional', async (req, res) => {
@@ -107,6 +108,9 @@ const io = new Server(server, {
 });
 const onlineUserSocketCount = new Map();
 const userLastSeen = new Map();
+
+const normalizeId = (id) => id?.toString?.();
+const isUserOnline = (userId) => onlineUserSocketCount.has(normalizeId(userId));
 
 const broadcastPresenceUpdate = (userId, online, lastSeen = null) => {
     io.emit('presenceUpdate', { userId, online, lastSeen });
@@ -175,7 +179,13 @@ io.on('connection', (socket) => {
         try {
             const { chatId, text } = messageData || {};
             const senderId = socket.user?.id;
+            console.log('📤 sendMessage received:', {
+                chatId: chatId?.toString?.(),
+                text: text?.substring?.(0, 50),
+                senderId: senderId?.toString?.()
+            });
             if (!chatId || !text || !senderId) {
+                console.error('❌ Invalid message payload:', messageData);
                 if (typeof callback === 'function') callback({ success: false, error: 'Invalid message payload' });
                 return socket.emit('error', { error: 'Invalid message payload' });
             }
@@ -243,17 +253,38 @@ io.on('connection', (socket) => {
             });
             await message.save();
 
+            const receiverOnline = isUserOnline(receiverUser._id);
+            let messageStatus = message.status;
+            if (receiverOnline) {
+                const updated = await Message.findByIdAndUpdate(
+                    message._id,
+                    { status: 'delivered' },
+                    { new: true }
+                );
+                messageStatus = updated?.status || 'delivered';
+                console.log(`Message ${message._id} marked as delivered for online user ${receiverUser._id}`);
+            }
+
             const payload = {
-                _id: message._id,
-                connectionId: message.connectionId,
-                senderId: message.senderId,
+                _id: message._id.toString(),
+                connectionId: message.connectionId.toString(),
+                senderId: message.senderId.toString(),
                 senderName: sender.name,
-                receiverId: message.receiverId,
+                receiverId: message.receiverId.toString(),
                 senderType: message.senderType,
                 content: message.content,
-                status: message.status,
+                status: messageStatus,
                 timestamp: message.timestamp,
             };
+
+            console.log('📦 Payload being sent:', {
+                _id: payload._id,
+                senderId: payload.senderId,
+                senderIdType: typeof payload.senderId,
+                receiverId: payload.receiverId,
+                connectionId: payload.connectionId,
+                content: payload.content.substring(0, 50)
+            });
 
             if (typeof callback === 'function') {
                 callback({ success: true, message: payload });
@@ -272,7 +303,24 @@ io.on('connection', (socket) => {
                 unreadCount,
             });
 
+            if (receiverOnline) {
+                io.to(`user:${senderId}`).emit('messageStatusUpdate', {
+                    messageId: message._id,
+                    status: 'delivered',
+                    connectionId: message.connectionId,
+                });
+            }
+
+            // Emit both to receiver's user channel and to the active chat room.
             io.to(`user:${receiverUser._id}`).emit('receiveMessage', payload);
+            io.to(`chat:${chatId}`).emit('receiveMessage', payload);
+
+            console.log(`Message ${message._id} emitted to:`, {
+                toUserRoom: `user:${receiverUser._id}`,
+                toChatRoom: `chat:${chatId}`,
+                content: payload.content,
+                status: payload.status
+            });
         } catch (err) {
             console.error('Socket sendMessage error:', err.message);
             socket.emit('error', { error: 'Unable to send message' });
@@ -291,7 +339,13 @@ io.on('connection', (socket) => {
 
             if (unreadMessages.length > 0) {
                 const messageIds = unreadMessages.map(msg => msg._id);
-                await Message.updateMany({ _id: { $in: messageIds } }, { status: 'read' });
+                await Message.updateMany(
+                    { _id: { $in: messageIds } },
+                    { $set: { status: 'read' } }
+                );
+
+                console.log(`Marked ${messageIds.length} messages as read for conversation ${chatId}`);
+
                 unreadMessages.forEach((msg) => {
                     io.to(`user:${msg.senderId}`).emit('messageStatusUpdate', {
                         messageId: msg._id,

@@ -1,30 +1,42 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
 
+import { useTheme } from './src/context/ThemeContext';
+import { Ionicons } from '@expo/vector-icons';
+
 export default function ProfessionalProfileScreen({ route }) {
+  const { colors } = useTheme();
   const medico = route.params?.medico || {
-    name: 'Dra. Ana',
-    specialty: 'Psicologia',
-    image: 'https://i.pravatar.cc/150?img=5',
+    name: 'Profissional',
+    specialty: 'Especialidade',
+    image: null,
   };
   const name = medico.name || medico.nome || 'Profissional';
   const specialty = medico.specialty || medico.especialidade || 'Especialidade não informada';
-  const image = medico.image || medico.imagem || 'https://i.pravatar.cc/150?img=5';
+  const image = medico.image || medico.imagem || null;
 
   return (
-    <View style={styles.container}>
-      <Image source={{ uri: image }} style={styles.avatar} />
-      <Text style={styles.name}>{name}</Text>
-      <Text style={styles.specialty}>{specialty}</Text>
-      <Text style={styles.description}>Perfil do profissional e serviços oferecidos.</Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {image ? (
+        <Image source={{ uri: image }} style={styles.avatar} />
+      ) : (
+        <View style={[styles.avatar, { backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' }]}>
+          <Ionicons name="person" size={60} color="white" />
+        </View>
+      )}
+      <Text style={[styles.name, { color: colors.text }]}>{name}</Text>
+      <Text style={[styles.specialty, { color: colors.textSecondary }]}>{specialty}</Text>
+      <Text style={[styles.description, { color: colors.textSecondary }]}>Perfil do profissional e serviços oferecidos.</Text>
     </View>
   );
 }
 
+import { StyleSheet } from 'react-native';
+
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', padding: 20, backgroundColor: '#f3f4f6' },
-  avatar: { width: 120, height: 120, borderRadius: 16, marginBottom: 12, backgroundColor: '#e5e7eb' },
-  name: { fontSize: 20, fontWeight: '700', marginBottom: 4 },
-  specialty: { color: '#6b7280', marginBottom: 12 },
-  description: { textAlign: 'center', color: '#374151' },
+  container: { flex: 1, alignItems: 'center', padding: 20 },
+  avatar: { width: 120, height: 120, borderRadius: 60, marginBottom: 20, backgroundColor: '#e5e7eb' },
+  name: { fontSize: 20, fontWeight: '700', marginBottom: 8 },
+  specialty: { marginBottom: 12, fontSize: 14 },
+  description: { textAlign: 'center', fontSize: 14 },
 });

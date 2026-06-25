@@ -1,5 +1,5 @@
 import { useState, createContext, useContext, useEffect } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View, TextInput, Image, FlatList, Switch } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View, TextInput, Image, FlatList, Switch, Modal } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -9,6 +9,8 @@ import LoginScreen from './src/screens/LoginScreen';
 import ChatScreen from './ChatScreen';
 import ConversationsHistoryScreen from './src/screens/ConversationsHistoryScreen';
 import VideoScreen from './VideoScreen';
+import VideoScreen_new from './VideoScreen_new';
+import AvailabilityManagementScreen from './AvailabilityManagementScreen';
 import ActivePlanScreen from './ActivePlanScreen';
 import PlansScreen from './PlansScreen';
 import ProfessionalScreen from './ProfessionalScreen';
@@ -17,7 +19,9 @@ import ProfessionalSearchScreen from './ProfessionalSearchScreen';
 import ProfessionalReportsScreen from './ProfessionalReportsScreen';
 import ProfessionalRecordsScreen from './ProfessionalRecordsScreen';
 import CalendarScreen from './CalendarScreen';
-import { professionalsAPI, subscriptionsAPI, connectionsAPI } from './api';
+import { professionalsAPI, subscriptionsAPI, connectionsAPI, authAPI } from './api';
+import * as FileSystem from 'expo-file-system';
+import { AttachmentPicker } from './src/components/AttachmentPicker';
 import { AuthProvider, AuthContext } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import BackButton from './src/components/BackButton';
@@ -42,8 +46,6 @@ const linking = {
     },
   },
 };
-
-const ProfContext = createContext();
 
 function normalizePlan(plan) {
   if (!plan) return null;
@@ -73,7 +75,6 @@ function getGreeting() {
 }
 
 function HomeScreen({ navigation }) {
-  const { profData } = useContext(ProfContext);
   const { user } = useContext(AuthContext);
   const { colors } = useTheme();
 
@@ -229,7 +230,7 @@ function PatientStackNavigator() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="PatientTabs" component={PatientTabNavigator} />
       <Stack.Screen name="Plans" component={PlansScreen} />
-      <Stack.Screen name="Video" component={VideoScreen} />
+      <Stack.Screen name="Video" component={VideoScreen_new} />
       <Stack.Screen name="Chat" component={ChatScreen} />
       <Stack.Screen name="ConversationsHistory" component={ConversationsHistoryScreen} />
     </Stack.Navigator>
@@ -289,8 +290,9 @@ function ProfessionalStackNavigator() {
       <Stack.Screen name="Reports" component={ProfessionalReportsScreen} />
       <Stack.Screen name="Records" component={ProfessionalRecordsScreen} />
       <Stack.Screen name="ProfAgenda" component={ProfessionalAgendaScreen} />
+      <Stack.Screen name="AvailabilityManagement" component={AvailabilityManagementScreen} />
       <Stack.Screen name="Chat" component={ChatScreen} />
-      <Stack.Screen name="Video" component={VideoScreen} />
+      <Stack.Screen name="Video" component={VideoScreen_new} />
     </Stack.Navigator>
   );
 }
@@ -356,7 +358,7 @@ function SearchScreen({ navigation }) {
     specialty: prof.specialty || prof.especialidade || 'Especialidade não informada',
     rating: prof.rating ?? prof.avaliacao ?? 0,
     price: prof.price || prof.preco || 'Preço não informado',
-    image: prof.image || prof.imagem || 'https://i.pravatar.cc/150?img=5',
+    image: prof.image || prof.imagem || null,
     availability: prof.availability || prof.disponibilidade || 'Disponível',
     raw: prof,
   });
@@ -444,7 +446,13 @@ function SearchScreen({ navigation }) {
               onPress={() => navigation.navigate('ProfessionalProfile', { medico })}
               style={[styles.profCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
             >
-              <Image source={{ uri: medico.image }} style={styles.profImage} />
+              {medico.image ? (
+                <Image source={{ uri: medico.image }} style={styles.profImage} />
+              ) : (
+                <View style={[styles.profImage, { backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' }]}>
+                  <Ionicons name="person" size={40} color="white" />
+                </View>
+              )}
               <View style={styles.profContent}>
                 <View style={styles.profHeader}>
                   <Text style={[styles.profName, { color: colors.text }]}>{medico.name}</Text>
@@ -480,7 +488,7 @@ function SearchScreen({ navigation }) {
 }
 
 function ProfileScreen({ navigation }) {
-  const { user } = useContext(AuthContext);
+  const { user, updateUser } = useContext(AuthContext);
   const { colors } = useTheme();
   const roleLabel = user?.role === 'professional' ? 'Profissional' : 'Paciente';
   const showPlanCard = user?.role !== 'professional';
@@ -488,18 +496,76 @@ function ProfileScreen({ navigation }) {
   const planText = planLabel ? `Plano ${planLabel}` : 'Sem plano';
   const consultationsLeft = user?.consultationsLeft ?? 0;
 
+  const [showPicker, setShowPicker] = useState(false);
+
+  const handleSelectAttachment = async (file) => {
+    try {
+      setShowPicker(false);
+      Alert.alert('Enviando', 'Processando sua foto...');
+
+      // read file as base64
+      const base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.Base64 });
+      console.log('📸 Base64 size:', base64.length, 'bytes');
+
+      const dataUri = `data:image/jpeg;base64,${base64}`;
+      console.log('📸 Sending image to backend...');
+
+      // send to backend
+      const resp = await authAPI.updateProfile({ image: dataUri });
+      console.log('📸 Backend response:', resp.status, resp.data);
+
+      if (resp?.data) {
+        console.log('📸 Updating user context...');
+        await updateUser(resp.data);
+        Alert.alert('✓ Sucesso', 'Foto de perfil atualizada com sucesso!');
+      } else {
+        Alert.alert('Erro', 'Falha ao atualizar perfil.');
+      }
+    } catch (error) {
+      console.error('❌ Erro ao enviar imagem:', error);
+      console.error('❌ Error response:', error.response?.data);
+      console.error('❌ Error status:', error.response?.status);
+      Alert.alert('Erro', `Não foi possível enviar a imagem: ${error.message}`);
+    }
+  };
+
   return (
     <ScrollView style={[styles.profileContainer, { backgroundColor: colors.background }]} contentContainerStyle={{ padding: 24 }}>
       <View style={[styles.profileHeader, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-        <View style={[styles.profileAvatar, { backgroundColor: colors.primary }]}>
-          <Ionicons name="person" size={34} color="white" />
-        </View>
+        <Pressable onPress={() => setShowPicker(true)} style={styles.profileAvatarContainer}>
+          <View style={[styles.profileAvatar, { backgroundColor: colors.primary }]}>
+            {user?.image ? (
+              <Image
+                key={`avatar-${user._id}-${user.image.substring(0, 50)}`}
+                source={{ uri: user.image }}
+                style={styles.profileAvatarImage}
+              />
+            ) : (
+              <Ionicons name="person" size={40} color="white" />
+            )}
+          </View>
+          <View style={[styles.profileAvatarEditBadge, { backgroundColor: colors.primary, borderColor: colors.background, borderWidth: 2 }]}>
+            <Ionicons name="camera" size={16} color="white" />
+          </View>
+        </Pressable>
         <View style={styles.profileInfo}>
           <Text style={[styles.profileName, { color: colors.text }]}>{user?.name || 'Usuário'}</Text>
           <Text style={[styles.profileRole, { color: colors.primary }]}>{roleLabel}</Text>
           <Text style={[styles.profileEmail, { color: colors.textSecondary }]}>{user?.email || 'sem e-mail cadastrado'}</Text>
         </View>
       </View>
+
+      {/* Attachment picker modal */}
+      {showPicker && (
+        <Modal transparent animationType="slide" visible={showPicker} onRequestClose={() => setShowPicker(false)}>
+          <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+            <AttachmentPicker
+              onSelectAttachment={handleSelectAttachment}
+              onClose={() => setShowPicker(false)}
+            />
+          </View>
+        </Modal>
+      )}
 
       <View style={[styles.profileInfoCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
         <Text style={[styles.profileInfoLabel, { color: colors.textTertiary }]}>Informações da conta</Text>
@@ -623,13 +689,19 @@ function ProfessionalProfileScreen({ route, navigation }) {
   const rating = medico.rating ?? medico.avaliacao ?? 0;
   const price = medico.price || medico.preco || 'Preço não informado';
   const availability = medico.availability || medico.disponibilidade || 'Disponível';
-  const image = medico.image || medico.imagem || 'https://i.pravatar.cc/150?img=5';
+  const image = medico.image || medico.imagem || null;
 
   return (
     <View style={[styles.profProfileContainer, { backgroundColor: colors.background }]}>
       <View style={[styles.profProfileHeader, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
         <BackButton style={styles.profProfileBackButton} onPress={() => navigation.goBack()} />
-        <Image source={{ uri: image }} style={styles.profProfileImage} />
+        {image ? (
+          <Image source={{ uri: image }} style={styles.profProfileImage} />
+        ) : (
+          <View style={[styles.profProfileImage, { backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' }]}>
+            <Ionicons name="person" size={50} color="white" />
+          </View>
+        )}
         <View style={styles.profProfileOverlay} />
         <View style={styles.profProfileTextContainer}>
           <Text style={[styles.profProfileName, { color: colors.text }]}>{name}</Text>
@@ -696,27 +768,19 @@ function ProfessionalProfileScreen({ route, navigation }) {
 }
 
 export default function App() {
-  const [profData, setProfData] = useState([
-    { name: 'Dra. Ana Souza', specialty: 'Nutricionista', clients: [], balance: 0 },
-    { name: 'Dr. Lucas Pereira', specialty: 'Educador Físico', clients: [], balance: 0 },
-    { name: 'Dra. Mariana Lima', specialty: 'Psicóloga', clients: [], balance: 0 },
-  ]);
-
   return (
     <ThemeProvider>
       <AuthProvider>
-        <ProfContext.Provider value={{ profData, setProfData }}>
-          <NavigationContainer linking={linking}>
-            <AuthNavigator updateProfData={setProfData} />
-            <StatusBar style="light" />
-          </NavigationContainer>
-        </ProfContext.Provider>
+        <NavigationContainer linking={linking}>
+          <AuthNavigator />
+          <StatusBar style="light" />
+        </NavigationContainer>
       </AuthProvider>
     </ThemeProvider>
   );
 }
 
-function AuthNavigator({ updateProfData }) {
+function AuthNavigator() {
   const { isAuthenticated, isLoading, user } = useContext(AuthContext);
 
   console.log('AuthNavigator render - isAuthenticated:', isAuthenticated, 'isLoading:', isLoading, 'user:', !!user);
@@ -742,7 +806,7 @@ function AuthNavigator({ updateProfData }) {
           />
           <Stack.Screen name="Config" component={ConfigScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Chat" component={ChatScreen} />
-          <Stack.Screen name="Video" component={VideoScreen} />
+          <Stack.Screen name="Video" component={VideoScreen_new} />
           <Stack.Screen name="ActivePlan" component={ActivePlanScreen} options={{ headerShown: false }} />
           <Stack.Screen name="ProfessionalProfile" component={ProfessionalProfileScreen} />
           <Stack.Screen name="Reports" component={ProfessionalReportsScreen} />
@@ -949,11 +1013,32 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 4,
   },
+  profileAvatarContainer: {
+    marginRight: 12,
+    position: 'relative',
+  },
   profileAvatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#2563eb',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  profileAvatarImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
+  profileAvatarEditBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },

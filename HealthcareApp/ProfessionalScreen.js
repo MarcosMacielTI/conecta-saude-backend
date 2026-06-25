@@ -189,7 +189,14 @@ export default function ProfessionalScreen({ navigation }) {
                                 <View style={[styles.appointmentIcon, { backgroundColor: colors.cardHover }]}>
                                     <Ionicons name="person-circle" size={32} color={colors.primary} />
                                 </View>
-                                <Pressable style={styles.appointmentContent} onPress={() => navigation.navigate('Video', { patient })}>
+                                <Pressable
+                                    style={styles.appointmentContent}
+                                    onPress={() => navigation.navigate('Video', {
+                                        contactId: patient.id || patient._id,
+                                        contactName: patient.name,
+                                        contactType: 'patient',
+                                    })}
+                                >
                                     <Text style={[styles.appointmentName, { color: colors.text }]}>{patient.name}</Text>
                                     <Text style={[styles.appointmentTime, { color: colors.textTertiary }]}>
                                         <Ionicons name="time-outline" size={12} /> {patient.time}
@@ -198,7 +205,11 @@ export default function ProfessionalScreen({ navigation }) {
                                 <View style={{ flexDirection: 'column', alignItems: 'flex-end' }}>
                                     <Pressable
                                         style={styles.iconButton}
-                                        onPress={() => navigation.navigate('Video', { patient })}
+                                        onPress={() => navigation.navigate('Video', {
+                                            contactId: patient.id || patient._id,
+                                            contactName: patient.name,
+                                            contactType: 'patient',
+                                        })}
                                     >
                                         <Ionicons
                                             name="videocam"

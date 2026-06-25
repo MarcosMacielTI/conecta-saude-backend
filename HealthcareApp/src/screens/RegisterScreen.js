@@ -1,7 +1,6 @@
 import React, { useState, useContext, useEffect } from 'react';
 import { SafeAreaView, View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { AuthContext } from '../context/AuthContext';
-import BackButton from '../components/BackButton';
 import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
@@ -25,7 +24,7 @@ export default function RegisterScreen({ navigation }) {
     expoClientId: EXPO_CLIENT_ID,
     iosClientId: IOS_CLIENT_ID,
     androidClientId: ANDROID_CLIENT_ID,
-    webClientId: GOOGLE_CLIENT_ID,
+    webClientId: WEB_CLIENT_ID,
     redirectUri,
     responseType: 'id_token',
     scopes: ['profile', 'email'],
@@ -95,11 +94,7 @@ export default function RegisterScreen({ navigation }) {
           keyboardShouldPersistTaps="always"
           keyboardDismissMode="interactive"
         >
-          <View style={styles.hero}>
-            <BackButton onPress={() => navigation.goBack()} />
-            <Text style={styles.heroTitle}>Criar conta</Text>
-            <Text style={styles.heroSubtitle}>Escolha seu acesso e seja bem-vindo à Conecta Saúde.</Text>
-          </View>
+          {/* Header removed as requested: no top card with back button and title */}
 
           <View style={styles.card}>
             <View style={styles.formHeader}>
@@ -234,7 +229,20 @@ export default function RegisterScreen({ navigation }) {
 
             <Text style={styles.orText}>ou</Text>
 
-            <TouchableOpacity style={styles.googleButton} onPress={() => promptAsync({ useProxy: true })}>
+            <TouchableOpacity
+              style={styles.googleButton}
+              onPress={() => {
+                if (!request) {
+                  Alert.alert(
+                    'Google Auth não configurado',
+                    'Autenticação Google indisponível. Verifique as chaves em src/config/googleConfig.js e adicione o redirect URI mostrado nos logs ao Console do Google.'
+                  );
+                  return;
+                }
+                promptAsync({ useProxy: true });
+              }}
+              disabled={!request || isLoading}
+            >
               <Ionicons name="logo-google" size={20} color="#1f2937" />
               <Text style={styles.googleButtonText}>Continuar com Google</Text>
             </TouchableOpacity>

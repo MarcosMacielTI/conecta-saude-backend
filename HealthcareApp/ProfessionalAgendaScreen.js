@@ -406,7 +406,12 @@ function ProfessionalAgendaScreen({ navigation }) {
                             dayAppointments.map((apt) => (
                                 <Pressable
                                     key={apt._id}
-                                    onPress={() => navigation.navigate('Video', { appointment: apt })}
+                                    onPress={() => navigation.navigate('Video', {
+                                        appointmentId: apt._id,
+                                        appointmentVideoLink: apt.videoLink,
+                                        appointmentPatientName: apt.patientId?.name || apt.patient?.name,
+                                        appointmentPatientId: apt.patientId?._id || apt.patientId?.id || apt.patient?._id || apt.patient?.id,
+                                    })}
                                     style={[styles.appointmentCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
                                 >
                                     <View style={[styles.timeBox, { backgroundColor: `${colors.primary}15` }]}>
@@ -448,7 +453,12 @@ function ProfessionalAgendaScreen({ navigation }) {
                                     }
                                     try {
                                         await appointmentsAPI.updateStatus(selectedAppointment._id, 'em_andamento');
-                                        navigation.navigate('Video', { appointment: selectedAppointment });
+                                        navigation.navigate('Video', {
+                                            appointmentId: selectedAppointment._id,
+                                            appointmentVideoLink: selectedAppointment.videoLink,
+                                            appointmentPatientName: selectedAppointment.patientId?.name || selectedAppointment.patient?.name,
+                                            appointmentPatientId: selectedAppointment.patientId?._id || selectedAppointment.patientId?.id || selectedAppointment.patient?._id || selectedAppointment.patient?.id,
+                                        });
                                     } catch (error) {
                                         Alert.alert('Erro', 'Não foi possível iniciar a consulta.');
                                     }

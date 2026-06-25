@@ -83,6 +83,7 @@ router.post('/register', async (req, res) => {
                 role: user.role,
                 cpf: user.cpf,
                 professionalId: user.professionalId,
+                image: user.image || null,
                 plan: user.plan,
                 consultationsLeft: user.consultationsLeft
             }
@@ -137,6 +138,7 @@ router.post('/login', async (req, res) => {
                 role: user.role,
                 cpf: user.cpf,
                 professionalId: user.professionalId,
+                image: user.image || null,
                 plan: user.plan,
                 consultationsLeft: user.consultationsLeft
             }
@@ -167,6 +169,44 @@ router.get('/me', verifyToken, async (req, res) => {
             role: user.role,
             cpf: user.cpf,
             professionalId: user.professionalId,
+            image: user.image || null,
+            plan: user.plan,
+            consultationsLeft: user.consultationsLeft
+        });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Update current user's profile (name, image, etc.)
+router.put('/me', verifyToken, async (req, res) => {
+    try {
+        const updates = req.body || {};
+        const allowed = ['name', 'image'];
+        const toUpdate = {};
+
+        // Validate and limit image size (5MB max for base64)
+        if (updates.image) {
+            const imageSizeMB = (updates.image.length * 3 / 4) / (1024 * 1024);
+            if (imageSizeMB > 5) {
+                return res.status(400).json({ error: 'Image is too large (max 5MB)' });
+            }
+        }
+
+        allowed.forEach((k) => { if (updates[k] !== undefined) toUpdate[k] = updates[k]; });
+
+        const user = await User.findByIdAndUpdate(req.user.id, { $set: toUpdate }, { new: true });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        res.json({
+            _id: user._id,
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            cpf: user.cpf,
+            professionalId: user.professionalId,
+            image: user.image || null,
             plan: user.plan,
             consultationsLeft: user.consultationsLeft
         });
@@ -189,8 +229,22 @@ router.post('/google/mobile', async (req, res) => {
             try {
                 const payload = JSON.parse(data);
 
-                // validate audience
-                if (payload.aud !== process.env.GOOGLE_CLIENT_ID) {
+                const validGoogleClientIds = [
+                    process.env.GOOGLE_CLIENT_ID,
+                    process.env.GOOGLE_WEB_CLIENT_ID,
+                    process.env.GOOGLE_EXPO_CLIENT_ID,
+                    process.env.GOOGLE_ANDROID_CLIENT_ID,
+                    process.env.GOOGLE_IOS_CLIENT_ID,
+                ].filter(Boolean);
+
+                console.log('Google idToken audience:', payload.aud);
+                console.log('Configured Google valid audiences:', validGoogleClientIds);
+
+                if (!validGoogleClientIds.length) {
+                    return res.status(500).json({ error: 'Google client IDs are not configured on the backend' });
+                }
+
+                if (!validGoogleClientIds.includes(payload.aud)) {
                     return res.status(401).json({ error: 'Invalid Google client ID' });
                 }
 
@@ -236,6 +290,41 @@ router.post('/google/mobile', async (req, res) => {
     }).on('error', (err) => {
         return res.status(500).json({ error: 'Failed to verify token' });
     });
+});
+
+// Admin: cleanup test users (development only - should require special permission)
+router.delete('/admin/cleanup-test-users', verifyToken, async (req, res) => {
+    try {
+        // Only allow if user is admin or in development mode
+        const isDev = process.env.NODE_ENV === 'development' || process.env.ALLOW_CLEANUP === 'true';
+        if (!isDev && req.user.role !== 'admin') {
+            return res.status(403).json({ error: 'Not authorized' });
+        }
+
+        const testEmails = [
+            'test@example.com',
+            'test2@example.com',
+            'test16@example.com',
+            'test@test.com',
+            'joao@example.com',
+            'joao2@test.com',
+            'joao5@test.com',
+            'joao.teste@conectasaude.com',
+            'maria.teste@conectasaude.com',
+            'pedro.teste@conectasaude.com',
+        ];
+
+        const result = await User.deleteMany({
+            email: { $in: testEmails.map(e => new RegExp(`^${e}$`, 'i')) }
+        });
+
+        res.json({
+            message: 'Test users cleaned up successfully',
+            deletedCount: result.deletedCount
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 module.exports = router;

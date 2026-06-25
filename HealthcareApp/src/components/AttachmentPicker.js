@@ -20,7 +20,7 @@ export const AttachmentPicker = ({ onSelectAttachment, onClose }) => {
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
                 allowsEditing: true,
                 aspect: [4, 3],
-                quality: 0.8,
+                quality: 0.7,  // Reduced from 0.8 for better compression
             });
 
             if (!result.canceled) {
@@ -46,7 +46,7 @@ export const AttachmentPicker = ({ onSelectAttachment, onClose }) => {
             const result = await ImagePicker.launchCameraAsync({
                 allowsEditing: true,
                 aspect: [4, 3],
-                quality: 0.8,
+                quality: 0.7,  // Reduced from 0.8 for better compression
             });
 
             if (!result.canceled) {

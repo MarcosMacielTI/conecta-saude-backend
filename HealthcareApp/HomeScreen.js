@@ -1,21 +1,36 @@
-import React, { useContext } from 'react';
-import { ScrollView, View, Text, StyleSheet, Image, Pressable, Alert } from 'react-native';
+import React, { useContext, useState, useEffect } from 'react';
+import { ScrollView, View, Text, StyleSheet, Image, Pressable, Alert, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from './src/context/AuthContext';
 import { useTheme } from './src/context/ThemeContext';
-
-const profissionais = [
-  { id: 1, nome: 'Dra. Ana Silva', especialidade: 'Psicologia', imagem: 'https://i.pravatar.cc/150?img=5' },
-  { id: 2, nome: 'Dr. Marcos Santos', especialidade: 'Nutrição', imagem: 'https://i.pravatar.cc/150?img=11' },
-  { id: 3, nome: 'Prof. João Costa', especialidade: 'Educação Física', imagem: 'https://i.pravatar.cc/150?img=12' },
-];
+import { professionalsAPI } from './api';
 
 export default function HomeScreen({ navigation }) {
   const { user } = useContext(AuthContext);
   const { colors } = useTheme();
+  const [professionals, setProfessionals] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const planLabel = user?.plan || 'Sem Plano';
   const consultationsLeft = user?.consultationsLeft ?? 0;
   const hasPlan = user?.plan && user.plan !== 'sem plano';
+
+  useEffect(() => {
+    loadProfessionals();
+  }, []);
+
+  const loadProfessionals = async () => {
+    try {
+      setLoading(true);
+      const response = await professionalsAPI.getAll();
+      setProfessionals(response.data.slice(0, 3));
+    } catch (error) {
+      console.error('Erro ao buscar profissionais:', error);
+      setProfessionals([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleVideoCall = () => {
     if (!hasPlan) {
@@ -83,15 +98,35 @@ export default function HomeScreen({ navigation }) {
 
       {/* Profissionais em Destaque */}
       <Text style={[styles.title, { color: colors.text }]}>Profissionais em destaque</Text>
-      {profissionais.map((p) => (
-        <Pressable key={p.id} style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]} onPress={() => navigation.navigate('ProfessionalProfile', { medico: p })}>
-          <Image source={{ uri: p.imagem }} style={styles.avatar} />
-          <View style={styles.info}>
-            <Text style={[styles.name, { color: colors.text }]}>{p.nome}</Text>
-            <Text style={[styles.specialty, { color: colors.textSecondary }]}>{p.especialidade}</Text>
-          </View>
-        </Pressable>
-      ))}
+      {loading ? (
+        <View style={{ padding: 20, alignItems: 'center' }}>
+          <ActivityIndicator size="small" color={colors.primary} />
+        </View>
+      ) : professionals.length === 0 ? (
+        <View style={{ padding: 20, alignItems: 'center' }}>
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Nenhum profissional disponível</Text>
+        </View>
+      ) : (
+        professionals.map((p) => (
+          <Pressable key={p._id || p.id} style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]} onPress={() => navigation.navigate('ProfessionalProfile', { medico: p })}>
+            {p.image ? (
+              <Image source={{ uri: p.image }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatar, { backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' }]}>
+                <Ionicons name="person" size={32} color="white" />
+              </View>
+            )}
+            <View style={styles.info}>
+              <Text style={[styles.name, { color: colors.text }]}>{p.name || p.nome || 'Profissional'}</Text>
+              <Text style={[styles.specialty, { color: colors.textSecondary }]}>{p.specialty || p.especialidade || 'Especialidade'}</Text>
+            </View>
+          </Pressable>
+        ))
+      )}
+
+      <Pressable style={[styles.seeAllButton, { backgroundColor: colors.primary, marginTop: 16 }]} onPress={() => navigation.navigate('Search')}>
+        <Text style={styles.seeAllButtonText}>Ver todos os profissionais</Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -133,4 +168,7 @@ const styles = StyleSheet.create({
   info: { flex: 1 },
   name: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
   specialty: { fontSize: 14, color: '#6b7280' },
+  emptyText: { fontSize: 14, fontWeight: '500' },
+  seeAllButton: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, alignItems: 'center' },
+  seeAllButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });

@@ -33,7 +33,7 @@ export default function SearchScreen({ navigation }) {
     specialty: prof.specialty || prof.especialidade || 'Especialidade não informada',
     email: prof.email || prof.email || '',
     qualifications: prof.qualifications || prof.qualificacoes || [],
-    avatar: prof.image || 'https://i.pravatar.cc/150?img=5',
+    avatar: prof.image || null,
     price: prof.price || prof.preco || 'Preço não informado',
     availability: prof.availability || prof.disponibilidade || 'Disponível',
     raw: prof,
