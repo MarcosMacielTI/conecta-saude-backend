@@ -555,8 +555,11 @@ export default function PlansScreen({ navigation }) {
             <Text style={[styles.modalMessage, { color: colors.textSecondary }]}>
               {paymentResult.message || 'Escaneie o QR Code abaixo para efetuar o pagamento. A ativação será concluída automaticamente após a confirmação.'}
             </Text>
-            {paymentResult.qrCodeUrl ? (
-              <Image source={{ uri: paymentResult.qrCodeUrl }} style={styles.qrCodeImage} />
+            {paymentResult.qrCodeUrl || paymentResult.qrCodeImage ? (
+              <Image
+                source={{ uri: paymentResult.qrCodeUrl || paymentResult.qrCodeImage }}
+                style={styles.qrCodeImage}
+              />
             ) : (
               (() => {
                 const data = paymentResult.qrCodeData || paymentResult.qrCode || paymentResult.pixCode;
@@ -598,11 +601,11 @@ export default function PlansScreen({ navigation }) {
                         <Text style={[styles.modalButtonText, { color: '#fff' }]}>Copiar Código PIX</Text>
                       </Pressable>
 
-                      {(paymentResult.qrCodeUrl || uri) ? (
+                      {paymentResult.qrCodeUrl ? (
                         <Pressable
                           style={[styles.modalButton, styles.modalCancel, { borderColor: colors.border }]}
                           onPress={() => {
-                            const openUrl = paymentResult.qrCodeUrl || uri;
+                            const openUrl = paymentResult.qrCodeUrl;
                             try {
                               if (typeof window !== 'undefined' && window.open) {
                                 window.open(openUrl, '_blank');

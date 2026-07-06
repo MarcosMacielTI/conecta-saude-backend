@@ -1,16 +1,18 @@
-import { useState, createContext, useContext, useEffect } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View, TextInput, Image, FlatList, Switch, Modal } from 'react-native';
+import { useState, useRef, createContext, useContext, useEffect } from 'react';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View, TextInput, Image, FlatList, Switch, Modal, ActivityIndicator } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as DocumentPicker from 'expo-document-picker';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LoginScreen from './src/screens/LoginScreen';
 import ChatScreen from './ChatScreen';
 import ConversationsHistoryScreen from './src/screens/ConversationsHistoryScreen';
 import VideoScreen from './VideoScreen';
-import VideoScreen_new from './VideoScreen_new';
-import AvailabilityManagementScreen from './AvailabilityManagementScreen';
 import ActivePlanScreen from './ActivePlanScreen';
 import PlansScreen from './PlansScreen';
 import ProfessionalScreen from './ProfessionalScreen';
@@ -19,9 +21,7 @@ import ProfessionalSearchScreen from './ProfessionalSearchScreen';
 import ProfessionalReportsScreen from './ProfessionalReportsScreen';
 import ProfessionalRecordsScreen from './ProfessionalRecordsScreen';
 import CalendarScreen from './CalendarScreen';
-import { professionalsAPI, subscriptionsAPI, connectionsAPI, authAPI } from './api';
-import * as FileSystem from 'expo-file-system';
-import { AttachmentPicker } from './src/components/AttachmentPicker';
+import { authAPI, professionalsAPI, subscriptionsAPI, connectionsAPI, usersAPI } from './api';
 import { AuthProvider, AuthContext } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import BackButton from './src/components/BackButton';
@@ -46,6 +46,8 @@ const linking = {
     },
   },
 };
+
+const ProfContext = createContext();
 
 function normalizePlan(plan) {
   if (!plan) return null;
@@ -75,6 +77,7 @@ function getGreeting() {
 }
 
 function HomeScreen({ navigation }) {
+  const { profData } = useContext(ProfContext);
   const { user } = useContext(AuthContext);
   const { colors } = useTheme();
 
@@ -230,7 +233,7 @@ function PatientStackNavigator() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="PatientTabs" component={PatientTabNavigator} />
       <Stack.Screen name="Plans" component={PlansScreen} />
-      <Stack.Screen name="Video" component={VideoScreen_new} />
+      <Stack.Screen name="Video" component={VideoScreen} />
       <Stack.Screen name="Chat" component={ChatScreen} />
       <Stack.Screen name="ConversationsHistory" component={ConversationsHistoryScreen} />
     </Stack.Navigator>
@@ -290,9 +293,8 @@ function ProfessionalStackNavigator() {
       <Stack.Screen name="Reports" component={ProfessionalReportsScreen} />
       <Stack.Screen name="Records" component={ProfessionalRecordsScreen} />
       <Stack.Screen name="ProfAgenda" component={ProfessionalAgendaScreen} />
-      <Stack.Screen name="AvailabilityManagement" component={AvailabilityManagementScreen} />
       <Stack.Screen name="Chat" component={ChatScreen} />
-      <Stack.Screen name="Video" component={VideoScreen_new} />
+      <Stack.Screen name="Video" component={VideoScreen} />
     </Stack.Navigator>
   );
 }
@@ -358,7 +360,7 @@ function SearchScreen({ navigation }) {
     specialty: prof.specialty || prof.especialidade || 'Especialidade não informada',
     rating: prof.rating ?? prof.avaliacao ?? 0,
     price: prof.price || prof.preco || 'Preço não informado',
-    image: prof.image || prof.imagem || null,
+    image: prof.image || prof.imagem || 'https://i.pravatar.cc/150?img=5',
     availability: prof.availability || prof.disponibilidade || 'Disponível',
     raw: prof,
   });
@@ -446,13 +448,7 @@ function SearchScreen({ navigation }) {
               onPress={() => navigation.navigate('ProfessionalProfile', { medico })}
               style={[styles.profCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
             >
-              {medico.image ? (
-                <Image source={{ uri: medico.image }} style={styles.profImage} />
-              ) : (
-                <View style={[styles.profImage, { backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' }]}>
-                  <Ionicons name="person" size={40} color="white" />
-                </View>
-              )}
+              <Image source={{ uri: medico.image }} style={styles.profImage} />
               <View style={styles.profContent}>
                 <View style={styles.profHeader}>
                   <Text style={[styles.profName, { color: colors.text }]}>{medico.name}</Text>
@@ -488,84 +484,33 @@ function SearchScreen({ navigation }) {
 }
 
 function ProfileScreen({ navigation }) {
-  const { user, updateUser } = useContext(AuthContext);
+  const { user } = useContext(AuthContext);
   const { colors } = useTheme();
   const roleLabel = user?.role === 'professional' ? 'Profissional' : 'Paciente';
   const showPlanCard = user?.role !== 'professional';
   const planLabel = getPlanLabel(user?.plan);
   const planText = planLabel ? `Plano ${planLabel}` : 'Sem plano';
   const consultationsLeft = user?.consultationsLeft ?? 0;
-
-  const [showPicker, setShowPicker] = useState(false);
-
-  const handleSelectAttachment = async (file) => {
-    try {
-      setShowPicker(false);
-      Alert.alert('Enviando', 'Processando sua foto...');
-
-      // read file as base64
-      const base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.Base64 });
-      console.log('📸 Base64 size:', base64.length, 'bytes');
-
-      const dataUri = `data:image/jpeg;base64,${base64}`;
-      console.log('📸 Sending image to backend...');
-
-      // send to backend
-      const resp = await authAPI.updateProfile({ image: dataUri });
-      console.log('📸 Backend response:', resp.status, resp.data);
-
-      if (resp?.data) {
-        console.log('📸 Updating user context...');
-        await updateUser(resp.data);
-        Alert.alert('✓ Sucesso', 'Foto de perfil atualizada com sucesso!');
-      } else {
-        Alert.alert('Erro', 'Falha ao atualizar perfil.');
-      }
-    } catch (error) {
-      console.error('❌ Erro ao enviar imagem:', error);
-      console.error('❌ Error response:', error.response?.data);
-      console.error('❌ Error status:', error.response?.status);
-      Alert.alert('Erro', `Não foi possível enviar a imagem: ${error.message}`);
-    }
-  };
+  const profileImageUri = user?.profilePhoto?.url || user?.image || null;
 
   return (
     <ScrollView style={[styles.profileContainer, { backgroundColor: colors.background }]} contentContainerStyle={{ padding: 24 }}>
-      <View style={[styles.profileHeader, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-        <Pressable onPress={() => setShowPicker(true)} style={styles.profileAvatarContainer}>
-          <View style={[styles.profileAvatar, { backgroundColor: colors.primary }]}>
-            {user?.image ? (
-              <Image
-                key={`avatar-${user._id}-${user.image.substring(0, 50)}`}
-                source={{ uri: user.image }}
-                style={styles.profileAvatarImage}
-              />
-            ) : (
-              <Ionicons name="person" size={40} color="white" />
-            )}
-          </View>
-          <View style={[styles.profileAvatarEditBadge, { backgroundColor: colors.primary, borderColor: colors.background, borderWidth: 2 }]}>
-            <Ionicons name="camera" size={16} color="white" />
-          </View>
-        </Pressable>
+      <Pressable onPress={() => navigation.navigate('ProfileDetail')} style={[styles.profileHeader, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+        <View style={styles.profileAvatarContainer}>
+          {profileImageUri ? (
+            <Image source={{ uri: profileImageUri }} style={styles.profileAvatarImage} />
+          ) : (
+            <View style={[styles.profileAvatar, { backgroundColor: colors.primary }]}>
+              <Ionicons name="person" size={34} color="white" />
+            </View>
+          )}
+        </View>
         <View style={styles.profileInfo}>
           <Text style={[styles.profileName, { color: colors.text }]}>{user?.name || 'Usuário'}</Text>
           <Text style={[styles.profileRole, { color: colors.primary }]}>{roleLabel}</Text>
           <Text style={[styles.profileEmail, { color: colors.textSecondary }]}>{user?.email || 'sem e-mail cadastrado'}</Text>
         </View>
-      </View>
-
-      {/* Attachment picker modal */}
-      {showPicker && (
-        <Modal transparent animationType="slide" visible={showPicker} onRequestClose={() => setShowPicker(false)}>
-          <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-            <AttachmentPicker
-              onSelectAttachment={handleSelectAttachment}
-              onClose={() => setShowPicker(false)}
-            />
-          </View>
-        </Modal>
-      )}
+      </Pressable>
 
       <View style={[styles.profileInfoCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
         <Text style={[styles.profileInfoLabel, { color: colors.textTertiary }]}>Informações da conta</Text>
@@ -593,6 +538,406 @@ function ProfileScreen({ navigation }) {
         <Text style={[styles.secondaryButtonText, { color: colors.text }]}>Ver planos disponíveis</Text>
       </Pressable>
     </ScrollView>
+  );
+}
+
+function ProfileDetailScreen({ navigation }) {
+  const { user, updateUser } = useContext(AuthContext);
+  const { colors } = useTheme();
+  const [modalVisible, setModalVisible] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [photoError, setPhotoError] = useState('');
+  const [selectedImageUri, setSelectedImageUri] = useState(null);
+  const [selectedImageName, setSelectedImageName] = useState(null);
+  const [selectedImageFile, setSelectedImageFile] = useState(null);
+  const [editingPhoto, setEditingPhoto] = useState(false);
+  const webFileInputRef = useRef(null);
+
+  const roleLabel = user?.role === 'professional' ? 'Profissional' : 'Paciente';
+  const planLabel = getPlanLabel(user?.plan);
+  const consultationsLeft = user?.consultationsLeft ?? 0;
+  const profileImageUri = user?.profilePhoto?.url || user?.image || null;
+
+  const formatDate = (date) => {
+    if (!date) return 'Não informado';
+    const parsed = new Date(date);
+    if (Number.isNaN(parsed.getTime())) return 'Não informado';
+    return parsed.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  };
+
+  const closeModal = () => {
+    setModalVisible(false);
+    setPhotoError('');
+    setUploadProgress(0);
+    setSelectedImageUri(null);
+    setSelectedImageName(null);
+    setSelectedImageFile(null);
+    setEditingPhoto(false);
+  };
+
+  const waitForModalClose = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  };
+
+  const handlePhotoUpload = async (uri, name = 'profile.jpg') => {
+    setUploading(true);
+    setPhotoError('');
+
+    try {
+      let uploadValue;
+      let finalName = selectedImageName || name;
+      let finalType = 'image/jpeg';
+
+      if (Platform.OS === 'web' && selectedImageFile) {
+        uploadValue = selectedImageFile;
+        finalName = selectedImageFile.name || finalName;
+        finalType = selectedImageFile.type || finalType;
+      } else {
+        const processed = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: 800 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+        );
+
+        const uriParts = processed.uri.split('.');
+        const fileType = uriParts[uriParts.length - 1].toLowerCase();
+        if (!['jpg', 'jpeg', 'png'].includes(fileType)) {
+          throw new Error('Formato inválido. Use JPG ou PNG.');
+        }
+
+        uploadValue = {
+          uri: processed.uri,
+          name: selectedImageName || `profile.${fileType}`,
+          type: fileType === 'png' ? 'image/png' : 'image/jpeg',
+        };
+        finalName = uploadValue.name;
+        finalType = uploadValue.type;
+      }
+
+      const formData = new FormData();
+      if (Platform.OS === 'web' && selectedImageFile) {
+        formData.append('photo', uploadValue, finalName);
+      } else {
+        formData.append('photo', uploadValue);
+      }
+
+      const response = await usersAPI.uploadProfilePhoto(formData, {
+        onUploadProgress: (progressEvent) => {
+          if (!progressEvent.total) return;
+          setUploadProgress(Math.round((progressEvent.loaded * 100) / progressEvent.total));
+        },
+      });
+
+      const updatedUser = response.data?.user || (await authAPI.me()).data;
+      if (updatedUser) {
+        await updateUser(updatedUser);
+      }
+      Alert.alert('Sucesso', 'Foto de perfil atualizada.');
+    } catch (error) {
+      const message = error.response?.data?.error || error.message || 'Não foi possível atualizar a foto.';
+      setPhotoError(message);
+      Alert.alert('Erro', message);
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+      closeModal();
+    }
+  };
+
+  const openImageLibrary = async () => {
+    setModalVisible(false);
+    await waitForModalClose();
+    if (typeof document !== 'undefined') {
+      document.activeElement?.blur?.();
+    }
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permissão necessária', 'Precisamos de acesso à galeria para selecionar uma foto.');
+      return null;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+
+    const uri = result.assets?.[0]?.uri || result.uri;
+    const wasCancelled = result.canceled === true || result.cancelled === true;
+    if (wasCancelled) {
+      setModalVisible(true);
+      return null;
+    }
+
+    if (!uri) {
+      setModalVisible(true);
+      Alert.alert('Erro', 'Não foi possível obter a imagem selecionada. Tente novamente.');
+      return null;
+    }
+
+    return uri;
+  };
+
+  const selectImageForPreview = (uri, name, file = null) => {
+    setSelectedImageUri(uri);
+    setSelectedImageName(name || 'profile.jpg');
+    setSelectedImageFile(file);
+    setEditingPhoto(true);
+    setModalVisible(true);
+  };
+
+  const pickImage = async () => {
+    if (Platform.OS === 'web') {
+      webFileInputRef.current?.click();
+      return;
+    }
+
+    const uri = await openImageLibrary();
+    if (!uri) return;
+
+    selectImageForPreview(uri, uri.split('/').pop() || 'profile.jpg');
+  };
+
+  const handleWebFileChange = async (event) => {
+    const file = event?.target?.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const uri = URL.createObjectURL(file);
+    selectImageForPreview(uri, file.name || 'profile.jpg', file);
+    event.target.value = null;
+  };
+
+  const pickFile = async () => {
+    if (Platform.OS === 'web') {
+      webFileInputRef.current?.click();
+      return;
+    }
+
+    setModalVisible(false);
+    await waitForModalClose();
+    if (typeof document !== 'undefined') {
+      document.activeElement?.blur?.();
+    }
+
+    const result = await DocumentPicker.getDocumentAsync({
+      type: 'image/*',
+      copyToCacheDirectory: true,
+    });
+
+    if (result.type === 'cancel') {
+      setModalVisible(true);
+      return;
+    }
+
+    if (!result.uri) {
+      setModalVisible(true);
+      Alert.alert('Erro', 'Não foi possível obter o arquivo selecionado. Tente novamente.');
+      return;
+    }
+
+    selectImageForPreview(result.uri, result.name || 'profile.jpg');
+  };
+
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permissão necessária', 'Precisamos de acesso à câmera para tirar uma foto.');
+      return;
+    }
+
+    setModalVisible(false);
+    await waitForModalClose();
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      document.activeElement?.blur?.();
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      ...(Platform.OS !== 'web' ? { allowsEditing: true, aspect: [1, 1] } : {}),
+    });
+
+    const uri = result.assets?.[0]?.uri || result.uri;
+    const wasCancelled = result.canceled === true || result.cancelled === true;
+    if (wasCancelled) {
+      return;
+    }
+
+    if (!uri) {
+      Alert.alert('Erro', 'Não foi possível obter a foto tirada. Tente novamente.');
+      return;
+    }
+
+    setSelectedImageUri(uri);
+    setSelectedImageName(uri.split('/').pop() || 'profile.jpg');
+    setEditingPhoto(true);
+  };
+
+  return (
+    <View style={[styles.profileDetailContainer, { backgroundColor: colors.background }]}>
+      {Platform.OS === 'web' && (
+        <input
+          ref={webFileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={handleWebFileChange}
+        />
+      )}
+      <View style={[styles.profileDetailHeader, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+        <BackButton onPress={() => navigation.goBack()} />
+        <Text style={[styles.profileDetailTitle, { color: colors.text }]}>Perfil</Text>
+      </View>
+
+      <ScrollView contentContainerStyle={{ padding: 24 }}>
+        <View style={[styles.profileDetailCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+          {profileImageUri ? (
+            <Image source={{ uri: profileImageUri }} style={styles.profileDetailImage} />
+          ) : (
+            <View style={[styles.profileDetailPlaceholder, { backgroundColor: colors.primary }]}>
+              <Ionicons name="person" size={48} color="white" />
+            </View>
+          )}
+
+          <Pressable style={[styles.profileDetailEditButton, { backgroundColor: colors.primary }]} onPress={() => setModalVisible(true)}>
+            <Text style={styles.profileDetailEditButtonText}>Editar</Text>
+          </Pressable>
+
+          <View style={styles.profileDetailInfo}>
+            <Text style={[styles.profileDetailLabel, { color: colors.textTertiary }]}>Nome de usuário</Text>
+            <Text style={[styles.profileDetailValue, { color: colors.text }]}>{user?.name || 'Não informado'}</Text>
+
+            <Text style={[styles.profileDetailLabel, { color: colors.textTertiary }]}>CPF</Text>
+            <Text style={[styles.profileDetailValue, { color: colors.text }]}>{user?.cpf || 'Não informado'}</Text>
+
+            <Text style={[styles.profileDetailLabel, { color: colors.textTertiary }]}>Conta criada em</Text>
+            <Text style={[styles.profileDetailValue, { color: colors.text }]}>{formatDate(user?.createdAt)}</Text>
+
+            {user?.role === 'patient' && (
+              <View style={styles.profileDetailPlanRow}>
+                <Text style={[styles.profileDetailLabel, { color: colors.textTertiary }]}>Plano</Text>
+                <Text style={[styles.profileDetailValue, { color: colors.text }]}>
+                  {planLabel ? `${planLabel} • ${consultationsLeft} consultas restantes` : 'Você não possui plano'}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </ScrollView>
+
+      {Platform.OS === 'web' ? (
+        modalVisible ? (
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Editar foto de perfil</Text>
+              {!editingPhoto ? (
+                <>
+                  <Pressable style={[styles.modalOptionButton, { backgroundColor: colors.card }]} onPress={pickImage}>
+                    <Text style={[styles.modalOptionText, { color: colors.text }]}>Galeria</Text>
+                  </Pressable>
+                  <Pressable style={[styles.modalOptionButton, { backgroundColor: colors.card }]} onPress={pickFile}>
+                    <Text style={[styles.modalOptionText, { color: colors.text }]}>Arquivo</Text>
+                  </Pressable>
+                  <Pressable style={[styles.modalOptionButton, { backgroundColor: colors.card }]} onPress={takePhoto}>
+                    <Text style={[styles.modalOptionText, { color: colors.text }]}>Câmera</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={[styles.modalSubtitle, { color: colors.textSecondary, marginBottom: 16 }]}>Ajuste a imagem antes de enviar</Text>
+                  <View style={styles.selectedImagePreviewWrapper}>
+                    <Image source={{ uri: selectedImageUri }} style={styles.selectedImagePreview} />
+                    <View style={styles.cropOverlay} pointerEvents="none" />
+                  </View>
+                  <Text style={[styles.modalText, { color: colors.text, textAlign: 'center', marginBottom: 16 }]}>A imagem será cortada em quadrado e exibida neste círculo de visualização.</Text>
+                  <View style={styles.finalCirclePreview}>
+                    <Image source={{ uri: selectedImageUri }} style={styles.finalCirclePreviewImage} />
+                  </View>
+                  <Pressable style={[styles.modalOptionButton, { backgroundColor: colors.primary }]} onPress={() => handlePhotoUpload(selectedImageUri)}>
+                    <Text style={[styles.modalOptionText, { color: '#fff' }]}>Enviar foto</Text>
+                  </Pressable>
+                  <Pressable style={[styles.modalOptionButton, { backgroundColor: colors.card }]} onPress={() => {
+                    setSelectedImageUri(null);
+                    setSelectedImageName(null);
+                    setEditingPhoto(false);
+                  }}>
+                    <Text style={[styles.modalOptionText, { color: colors.text }]}>Escolher outra</Text>
+                  </Pressable>
+                </>
+              )}
+              <Pressable style={[styles.modalCancelButton, { borderColor: colors.border }]} onPress={closeModal}>
+                <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Cancelar</Text>
+              </Pressable>
+              {uploading && (
+                <View style={styles.uploadProgressRow}>
+                  <ActivityIndicator color={colors.primary} />
+                  <Text style={[styles.uploadProgressText, { color: colors.text }]}>{uploadProgress}%</Text>
+                </View>
+              )}
+              {photoError ? <Text style={[styles.errorText, { color: colors.error }]}>{photoError}</Text> : null}
+            </View>
+          </View>
+        ) : null
+      ) : (
+        <Modal visible={modalVisible} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Editar foto de perfil</Text>
+              {!editingPhoto ? (
+                <>
+                  <Pressable style={[styles.modalOptionButton, { backgroundColor: colors.card }]} onPress={pickImage}>
+                    <Text style={[styles.modalOptionText, { color: colors.text }]}>Galeria</Text>
+                  </Pressable>
+                  <Pressable style={[styles.modalOptionButton, { backgroundColor: colors.card }]} onPress={pickFile}>
+                    <Text style={[styles.modalOptionText, { color: colors.text }]}>Arquivo</Text>
+                  </Pressable>
+                  <Pressable style={[styles.modalOptionButton, { backgroundColor: colors.card }]} onPress={takePhoto}>
+                    <Text style={[styles.modalOptionText, { color: colors.text }]}>Câmera</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={[styles.modalSubtitle, { color: colors.textSecondary, marginBottom: 16 }]}>Ajuste a imagem antes de enviar</Text>
+                  <View style={styles.selectedImagePreviewWrapper}>
+                    <Image source={{ uri: selectedImageUri }} style={styles.selectedImagePreview} />
+                    <View style={styles.cropOverlay} pointerEvents="none" />
+                  </View>
+                  <Text style={[styles.modalText, { color: colors.text, textAlign: 'center', marginBottom: 16 }]}>A imagem será cortada em quadrado e exibida neste círculo de visualização.</Text>
+                  <View style={styles.finalCirclePreview}>
+                    <Image source={{ uri: selectedImageUri }} style={styles.finalCirclePreviewImage} />
+                  </View>
+                  <Pressable style={[styles.modalOptionButton, { backgroundColor: colors.primary }]} onPress={() => handlePhotoUpload(selectedImageUri)}>
+                    <Text style={[styles.modalOptionText, { color: '#fff' }]}>Enviar foto</Text>
+                  </Pressable>
+                  <Pressable style={[styles.modalOptionButton, { backgroundColor: colors.card }]} onPress={() => {
+                    setSelectedImageUri(null);
+                    setSelectedImageName(null);
+                    setEditingPhoto(false);
+                  }}>
+                    <Text style={[styles.modalOptionText, { color: colors.text }]}>Escolher outra</Text>
+                  </Pressable>
+                </>
+              )}
+              <Pressable style={[styles.modalCancelButton, { borderColor: colors.border }]} onPress={closeModal}>
+                <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Cancelar</Text>
+              </Pressable>
+              {uploading && (
+                <View style={styles.uploadProgressRow}>
+                  <ActivityIndicator color={colors.primary} />
+                  <Text style={[styles.uploadProgressText, { color: colors.text }]}>{uploadProgress}%</Text>
+                </View>
+              )}
+              {photoError ? <Text style={[styles.errorText, { color: colors.error }]}>{photoError}</Text> : null}
+            </View>
+          </View>
+        </Modal>
+      )}
+    </View>
   );
 }
 
@@ -689,19 +1034,13 @@ function ProfessionalProfileScreen({ route, navigation }) {
   const rating = medico.rating ?? medico.avaliacao ?? 0;
   const price = medico.price || medico.preco || 'Preço não informado';
   const availability = medico.availability || medico.disponibilidade || 'Disponível';
-  const image = medico.image || medico.imagem || null;
+  const image = medico.image || medico.imagem || 'https://i.pravatar.cc/150?img=5';
 
   return (
     <View style={[styles.profProfileContainer, { backgroundColor: colors.background }]}>
       <View style={[styles.profProfileHeader, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
         <BackButton style={styles.profProfileBackButton} onPress={() => navigation.goBack()} />
-        {image ? (
-          <Image source={{ uri: image }} style={styles.profProfileImage} />
-        ) : (
-          <View style={[styles.profProfileImage, { backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' }]}>
-            <Ionicons name="person" size={50} color="white" />
-          </View>
-        )}
+        <Image source={{ uri: image }} style={styles.profProfileImage} />
         <View style={styles.profProfileOverlay} />
         <View style={styles.profProfileTextContainer}>
           <Text style={[styles.profProfileName, { color: colors.text }]}>{name}</Text>
@@ -768,19 +1107,31 @@ function ProfessionalProfileScreen({ route, navigation }) {
 }
 
 export default function App() {
+  const [profData, setProfData] = useState([
+    { name: 'Dra. Ana Souza', specialty: 'Nutricionista', clients: [], balance: 0 },
+    { name: 'Dr. Lucas Pereira', specialty: 'Educador Físico', clients: [], balance: 0 },
+    { name: 'Dra. Mariana Lima', specialty: 'Psicóloga', clients: [], balance: 0 },
+  ]);
+
+  const queryClient = new QueryClient();
+
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <NavigationContainer linking={linking}>
-          <AuthNavigator />
-          <StatusBar style="light" />
-        </NavigationContainer>
-      </AuthProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <AuthProvider>
+          <ProfContext.Provider value={{ profData, setProfData }}>
+            <NavigationContainer linking={linking}>
+              <AuthNavigator updateProfData={setProfData} />
+              <StatusBar style="light" />
+            </NavigationContainer>
+          </ProfContext.Provider>
+        </AuthProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }
 
-function AuthNavigator() {
+function AuthNavigator({ updateProfData }) {
   const { isAuthenticated, isLoading, user } = useContext(AuthContext);
 
   console.log('AuthNavigator render - isAuthenticated:', isAuthenticated, 'isLoading:', isLoading, 'user:', !!user);
@@ -804,9 +1155,10 @@ function AuthNavigator() {
             component={user?.role === 'professional' ? ProfessionalStackNavigator : PatientStackNavigator}
             options={{ headerShown: false }}
           />
+          <Stack.Screen name="ProfileDetail" component={ProfileDetailScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Config" component={ConfigScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Chat" component={ChatScreen} />
-          <Stack.Screen name="Video" component={VideoScreen_new} />
+          <Stack.Screen name="Video" component={VideoScreen} />
           <Stack.Screen name="ActivePlan" component={ActivePlanScreen} options={{ headerShown: false }} />
           <Stack.Screen name="ProfessionalProfile" component={ProfessionalProfileScreen} />
           <Stack.Screen name="Reports" component={ProfessionalReportsScreen} />
@@ -817,10 +1169,10 @@ function AuthNavigator() {
         // Usuário não autenticado - mostra tela de login e planos públicos
         <>
           <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
-          <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen name="Register" component={RegisterScreen} options={{ headerShown: false }} />
           <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: 'Esqueceu a senha?' }} />
           <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ title: 'Redefinir senha' }} />
-          <Stack.Screen name="Plans" component={PlansScreen} />
+          <Stack.Screen name="Plans" component={PlansScreen} options={{ headerShown: false }} />
         </>
       )}
     </Stack.Navigator>
@@ -1013,32 +1365,11 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 4,
   },
-  profileAvatarContainer: {
-    marginRight: 12,
-    position: 'relative',
-  },
   profileAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    overflow: 'hidden',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
-  },
-  profileAvatarImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-  },
-  profileAvatarEditBadge: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#2563eb',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1145,6 +1476,27 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+  profileHeaderHint: {
+    fontSize: 12,
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  profileAvatarContainer: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  profileAvatarImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    resizeMode: 'cover',
+  },
   profileButtonSecondary: {
     backgroundColor: '#e5e7eb',
     borderRadius: 14,
@@ -1160,6 +1512,181 @@ const styles = StyleSheet.create({
   configContainer: {
     flex: 1,
     backgroundColor: '#0f172a',
+  },
+  profileDetailContainer: {
+    flex: 1,
+  },
+  profileDetailHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    gap: 12,
+  },
+  profileDetailTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  profileDetailCard: {
+    borderRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+    gap: 20,
+  },
+  profileDetailImage: {
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    marginBottom: 20,
+  },
+  profileDetailPlaceholder: {
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  profileDetailEditButton: {
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    marginBottom: 20,
+  },
+  profileDetailEditButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  profileDetailInfo: {
+    width: '100%',
+  },
+  profileDetailLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  profileDetailValue: {
+    fontSize: 16,
+    marginBottom: 14,
+  },
+  profileDetailPlanRow: {
+    marginTop: 10,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  modalContent: {
+    width: '100%',
+    padding: 24,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 20,
+  },
+  modalOptionButton: {
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  modalOptionText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  modalCancelButton: {
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  modalCancelText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modalText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  selectedImagePreviewWrapper: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 24,
+    overflow: 'hidden',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#f8fafc',
+  },
+  selectedImagePreview: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  cropOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.9)',
+  },
+  finalCirclePreview: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    alignSelf: 'center',
+    marginBottom: 12,
+    backgroundColor: '#f8fafc',
+  },
+  finalCirclePreviewImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  circleGuide: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(56, 189, 248, 0.18)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(56, 189, 248, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginBottom: 8,
+  },
+  uploadProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 10,
+  },
+  uploadProgressText: {
+    fontSize: 14,
+  },
+  errorText: {
+    marginTop: 12,
+    fontSize: 14,
   },
   configHeader: {
     flexDirection: 'row',

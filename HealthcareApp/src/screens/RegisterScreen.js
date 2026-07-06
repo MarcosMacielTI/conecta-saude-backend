@@ -94,7 +94,17 @@ export default function RegisterScreen({ navigation }) {
           keyboardShouldPersistTaps="always"
           keyboardDismissMode="interactive"
         >
-          {/* Header removed as requested: no top card with back button and title */}
+          {/* Header card with back button and title */}
+          <View style={styles.hero}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+            >
+              <Ionicons name="chevron-back" size={20} color="#475569" />
+            </TouchableOpacity>
+            <Text style={styles.heroTitle}>Criar conta</Text>
+            <Text style={styles.heroSubtitle}>Escolha seu acesso e seja bem-vindo à Conecta Saúde.</Text>
+          </View>
 
           <View style={styles.card}>
             <View style={styles.formHeader}>
@@ -260,7 +270,7 @@ export default function RegisterScreen({ navigation }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#eef2ff',
+    backgroundColor: '#ffffff',
   },
   container: {
     flex: 1,

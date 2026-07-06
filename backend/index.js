@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const dns = require('dns');
 const dotenv = require('dotenv');
+const path = require('path');
 const { Server } = require('socket.io');
 
 dotenv.config();
@@ -15,6 +16,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Connect to MongoDB (use local or Atlas)
 const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/conecta_saude';

@@ -2,16 +2,60 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
+const multer = require('multer');
 const User = require('../models/User');
 const Professional = require('../models/Professional');
 const authController = require('../controllers/authController');
 
 const router = express.Router();
 
+const uploadDir = path.join(__dirname, '..', 'uploads', 'profile-photos');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        const name = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+        cb(null, name);
+    }
+});
+
+const upload = multer({
+    storage,
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+        if (!allowedTypes.includes(file.mimetype)) {
+            return cb(new Error('Only JPG, JPEG, PNG files are allowed'));
+        }
+        cb(null, true);
+    }
+});
+
 // Helper to generate JWT
 const generateToken = (user) => {
     return jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET || 'secret', { expiresIn: '1h' });
 };
+
+const serializeUser = (user) => ({
+    _id: user._id,
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    cpf: user.cpf,
+    professionalId: user.professionalId,
+    image: user.profilePhoto?.url || user.image || null,
+    profilePhoto: user.profilePhoto || null,
+    plan: user.plan,
+    consultationsLeft: user.consultationsLeft,
+    createdAt: user.createdAt,
+});
 
 // Verify JWT token for protected routes
 const verifyToken = (req, res, next) => {
@@ -73,21 +117,7 @@ router.post('/register', async (req, res) => {
         }
 
         const token = generateToken(user);
-        res.status(201).json({
-            token,
-            user: {
-                _id: user._id,
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                cpf: user.cpf,
-                professionalId: user.professionalId,
-                image: user.image || null,
-                plan: user.plan,
-                consultationsLeft: user.consultationsLeft
-            }
-        });
+        res.status(201).json({ token, user: serializeUser(user) });
     } catch (err) {
         res.status(400).json({ error: err.message });
     }
@@ -128,21 +158,7 @@ router.post('/login', async (req, res) => {
         }
 
         const token = generateToken(user);
-        res.json({
-            token,
-            user: {
-                _id: user._id,
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                cpf: user.cpf,
-                professionalId: user.professionalId,
-                image: user.image || null,
-                plan: user.plan,
-                consultationsLeft: user.consultationsLeft
-            }
-        });
+        res.json({ token, user: serializeUser(user) });
     } catch (err) {
         res.status(400).json({ error: err.message });
     }
@@ -161,57 +177,58 @@ router.get('/me', verifyToken, async (req, res) => {
             }
         }
 
-        res.json({
-            _id: user._id,
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            cpf: user.cpf,
-            professionalId: user.professionalId,
-            image: user.image || null,
-            plan: user.plan,
-            consultationsLeft: user.consultationsLeft
-        });
+        res.json(serializeUser(user));
     } catch (err) {
         res.status(400).json({ error: err.message });
     }
 });
 
 // Update current user's profile (name, image, etc.)
-router.put('/me', verifyToken, async (req, res) => {
+router.put('/me', verifyToken, upload.single('image'), async (req, res) => {
     try {
         const updates = req.body || {};
-        const allowed = ['name', 'image'];
+        const allowed = ['name'];
         const toUpdate = {};
 
-        // Validate and limit image size (5MB max for base64)
-        if (updates.image) {
-            const imageSizeMB = (updates.image.length * 3 / 4) / (1024 * 1024);
-            if (imageSizeMB > 5) {
-                return res.status(400).json({ error: 'Image is too large (max 5MB)' });
+        const removeImage = updates.removeImage === 'true' || updates.removeImage === true;
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        if (removeImage && (user.image || user.profilePhoto?.publicId)) {
+            const existingFilename = user.profilePhoto?.publicId || user.image?.split('/').pop();
+            const existingPath = path.join(uploadDir, existingFilename);
+            if (existingPath.startsWith(uploadDir) && fs.existsSync(existingPath)) {
+                fs.unlinkSync(existingPath);
             }
+            toUpdate.image = null;
+            toUpdate.profilePhoto = null;
+        }
+
+        if (req.file) {
+            const previousPublicId = user.profilePhoto?.publicId || user.image?.split('/').pop();
+            if (previousPublicId) {
+                const previousPath = path.join(uploadDir, previousPublicId);
+                if (previousPath.startsWith(uploadDir) && fs.existsSync(previousPath)) {
+                    fs.unlinkSync(previousPath);
+                }
+            }
+            const photoUrl = `${req.protocol}://${req.get('host')}/uploads/profile-photos/${req.file.filename}`;
+            toUpdate.profilePhoto = {
+                url: photoUrl,
+                publicId: req.file.filename,
+                updatedAt: new Date(),
+            };
+            toUpdate.image = photoUrl;
         }
 
         allowed.forEach((k) => { if (updates[k] !== undefined) toUpdate[k] = updates[k]; });
 
-        const user = await User.findByIdAndUpdate(req.user.id, { $set: toUpdate }, { new: true });
-        if (!user) return res.status(404).json({ error: 'User not found' });
-
-        res.json({
-            _id: user._id,
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            cpf: user.cpf,
-            professionalId: user.professionalId,
-            image: user.image || null,
-            plan: user.plan,
-            consultationsLeft: user.consultationsLeft
-        });
+        const updatedUser = await User.findByIdAndUpdate(req.user.id, { $set: toUpdate }, { new: true });
+        res.json(serializeUser(updatedUser));
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        console.error('Error updating profile:', err);
+        const message = err.message?.includes('Only JPG') ? err.message : 'Failed to update profile';
+        res.status(400).json({ error: message });
     }
 });
 

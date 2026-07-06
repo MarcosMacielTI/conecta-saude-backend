@@ -1,3 +1,4 @@
+const QRCode = require('qrcode');
 const { MercadoPagoConfig, Payment: MercadoPagoPayment, PaymentRefund } = require('mercadopago');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
@@ -88,6 +89,7 @@ async function createPixPayment(paymentData) {
     const qrCodeUrl = response.point_of_interaction?.transaction_data?.qr_code_url;
     const paymentId = response.id;
     const paymentStatus = response.status || 'pending';
+    const qrCodeImage = qrCodeData ? await QRCode.toDataURL(qrCodeData) : null;
 
     // Save payment record
     const payment = new Payment({
@@ -119,6 +121,7 @@ async function createPixPayment(paymentData) {
       status: paymentStatus,
       qrCodeData,
       qrCodeUrl,
+      qrCodeImage,
       expiresAt: payment.expiresAt,
       message: 'Pagamento criado com sucesso. Escaneie o QR code para pagar.',
     };

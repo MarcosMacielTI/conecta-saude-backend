@@ -11,6 +11,11 @@ const userSchema = new mongoose.Schema({
     consultationsLeft: { type: Number, default: 0 },
     professionalId: { type: mongoose.Schema.Types.ObjectId, ref: 'Professional', required: false },
     image: { type: String, required: false },
+    profilePhoto: {
+        url: { type: String, required: false },
+        publicId: { type: String, required: false },
+        updatedAt: { type: Date, required: false },
+    },
     createdAt: { type: Date, default: Date.now },
 });
 

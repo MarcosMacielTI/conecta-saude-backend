@@ -1,6 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const QRCode = require('qrcode');
 const Payment = require('../models/Payment');
 const Subscription = require('../models/Subscription');
 const paymentService = require('../services/paymentService');
@@ -209,6 +210,7 @@ router.get('/:paymentId', verifyToken, async (req, res) => {
       }
     }
 
+    const qrCodeImage = payment.qrCodeData ? await QRCode.toDataURL(payment.qrCodeData) : null;
     res.json({
       paymentId: payment._id,
       mercadoPagoId: payment.mercadoPagoId,
@@ -219,6 +221,7 @@ router.get('/:paymentId', verifyToken, async (req, res) => {
       paymentMethod: payment.paymentMethod,
       qrCodeData: payment.qrCodeData,
       qrCodeUrl: payment.qrCodeUrl,
+      qrCodeImage,
       createdAt: payment.createdAt,
       expiresAt: payment.expiresAt,
     });

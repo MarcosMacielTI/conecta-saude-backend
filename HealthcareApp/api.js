@@ -1,12 +1,32 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 
-const expoExtra = Constants?.expoConfig?.extra || Constants?.manifest?.extra || {};
-// Default to production backend on Railway; local/dev can override via expo extra or env
-// FORCE LOCAL DEVELOPMENT
-const apiUrl = 'http://localhost:3000'; // OVERRIDE: use localhost for development
-const BASE_URL = apiUrl.replace(/\/+$/, '');
+const expoExtra = Constants.expoConfig?.extra || Constants.manifest?.extra || Constants.manifest2?.extra || {};
+
+const getAppHost = () => {
+    if (Platform.OS === 'web') {
+        return 'localhost';
+    }
+
+    const manifest = Constants.expoConfig || Constants.manifest || Constants.manifest2;
+    const debuggerHost = manifest?.debuggerHost || manifest?.extra?.debuggerHost;
+    if (debuggerHost) {
+        return debuggerHost.split(':')[0];
+    }
+
+    if (Platform.OS === 'android') {
+        return '10.0.2.2';
+    }
+
+    return '127.0.0.1';
+};
+
+const configuredApiUrl = expoExtra?.API_URL || Constants.manifest?.extra?.API_URL || Constants.manifest2?.extra?.API_URL;
+const normalizedApiUrl = configuredApiUrl ? configuredApiUrl.replace(/\/+$/, '') : null;
+const apiUrl = normalizedApiUrl || `http://${getAppHost()}:3000`;
+const BASE_URL = apiUrl;
 export const API_BASE_URL = `${BASE_URL}/api`;
 export const BASE_API_URL = BASE_URL;
 
@@ -14,7 +34,7 @@ console.log('🔧 API Config:', {
     expoExtra,
     apiUrl,
     BASE_URL,
-    API_BASE_URL
+    API_BASE_URL,
 });
 
 const api = axios.create({
@@ -75,6 +95,9 @@ export const professionalsAPI = {
 
 export const usersAPI = {
     getAll: (role) => api.get('/users', { params: { role } }),
+    getById: (id) => api.get(`/users/${id}`),
+    uploadProfilePhoto: (formData, config = {}) => api.post('/users/profile-photo', formData, config),
+    deleteProfilePhoto: () => api.delete('/users/profile-photo'),
 };
 
 export const connectionsAPI = {

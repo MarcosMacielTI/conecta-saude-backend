@@ -236,7 +236,7 @@ function ProfessionalSearchScreen({ navigation }) {
                     <View style={styles.summaryItem}>
                         <Text style={[styles.summaryLabel, { color: colors.textTertiary }]}>Premium</Text>
                         <Text style={[styles.summaryValue, { color: colors.primary }]}>
-                            {patients.filter((p) => p.plan === 'Premium').length}
+                            {patients.filter((p) => getPlanLabel(p.plan) === 'Premium').length}
                         </Text>
                     </View>
                 </View>
