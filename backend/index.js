@@ -24,27 +24,60 @@ const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/conecta_sau
 async function connectMongo(uri) {
     try {
         await mongoose.connect(uri);
-        console.log(`MongoDB connected to ${uri}`);
+        console.log(`✅ MongoDB connected to ${uri}`);
+        return true;
     } catch (err) {
         if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED' || err.message.includes('querySrv')) {
-            console.warn('MongoDB Atlas SRV lookup failed on default DNS resolver. Retrying with public DNS (8.8.8.8)...');
+            console.warn('⚠️  MongoDB Atlas SRV lookup failed on default DNS resolver. Retrying with public DNS (8.8.8.8)...');
             const originalServers = dns.getServers();
             dns.setServers(['8.8.8.8']);
             try {
                 await mongoose.connect(uri);
-                console.log(`MongoDB connected to ${uri} using public DNS`);
-                return;
-            } catch (innerErr) {
-                console.error('MongoDB connection failed with public DNS:', innerErr);
-            } finally {
+                console.log(`✅ MongoDB connected to ${uri} using public DNS`);
                 dns.setServers(originalServers);
+                return true;
+            } catch (innerErr) {
+                dns.setServers(originalServers);
+                console.error('❌ MongoDB connection failed with public DNS:', innerErr);
+                return false;
             }
         }
-        console.error('MongoDB connection failed:', err);
+        console.error('❌ MongoDB connection failed:', err);
+        return false;
     }
 }
 
-connectMongo(mongoUri);
+// Initialize server only after MongoDB connection attempt
+async function startServer() {
+    console.log('🚀 Starting server...');
+    
+    // Try to connect to MongoDB
+    const isConnected = await connectMongo(mongoUri);
+    
+    if (!isConnected) {
+        console.error('❌ FATAL: Could not connect to MongoDB. Server will NOT start.');
+        console.error('📋 Make sure MONGO_URI is set correctly and MongoDB is accessible.');
+        console.error('🔗 MONGO_URI:', mongoUri);
+        process.exit(1);
+    }
+
+    const PORT = process.env.PORT || 3000;
+    const server = app.listen(PORT, () => {
+        console.log(`✅ Server running on port ${PORT}`);
+        console.log('🟢 Application is ready to handle requests');
+    });
+
+    // Socket.IO initialization (only after server is listening)
+    const io = new Server(server, {
+        cors: {
+            origin: true,
+            methods: ['GET', 'POST'],
+            credentials: true,
+        },
+    });
+
+    return { server, io };
+}
 
 const jwt = require('jsonwebtoken');
 const Professional = require('./models/Professional');
@@ -98,42 +131,50 @@ app.get('/health', (req, res) => {
     });
 });
 
-const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Start the server
+let server;
+let io;
 
-const io = new Server(server, {
-    cors: {
-        origin: true,
-        methods: ['GET', 'POST'],
-        credentials: true,
-    },
-});
-const onlineUserSocketCount = new Map();
-const userLastSeen = new Map();
+startServer()
+    .then(({ server: s, io: socketIo }) => {
+        server = s;
+        io = socketIo;
+        initializeSocketHandlers(io);
+    })
+    .catch(err => {
+        console.error('❌ Fatal error during server startup:', err);
+        process.exit(1);
+    });
 
-const normalizeId = (id) => id?.toString?.();
-const isUserOnline = (userId) => onlineUserSocketCount.has(normalizeId(userId));
+// Initialize Socket.IO handlers
+function initializeSocketHandlers(io) {
+    const onlineUserSocketCount = new Map();
+    const userLastSeen = new Map();
 
-const broadcastPresenceUpdate = (userId, online, lastSeen = null) => {
-    io.emit('presenceUpdate', { userId, online, lastSeen });
-};
-io.use((socket, next) => {
-    const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.replace('Bearer ', '');
-    if (!token) {
-        return next(new Error('Authentication error: token required'));
-    }
+    const normalizeId = (id) => id?.toString?.();
+    const isUserOnline = (userId) => onlineUserSocketCount.has(normalizeId(userId));
 
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-        socket.user = decoded;
-        next();
-    } catch (err) {
-        console.error('Socket auth failed:', err.message);
-        next(new Error('Authentication error'));
-    }
-});
+    const broadcastPresenceUpdate = (userId, online, lastSeen = null) => {
+        io.emit('presenceUpdate', { userId, online, lastSeen });
+    };
 
-io.on('connection', (socket) => {
+    io.use((socket, next) => {
+        const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.replace('Bearer ', '');
+        if (!token) {
+            return next(new Error('Authentication error: token required'));
+        }
+
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+            socket.user = decoded;
+            next();
+        } catch (err) {
+            console.error('Socket auth failed:', err.message);
+            next(new Error('Authentication error'));
+        }
+    });
+
+    io.on('connection', (socket) => {
     console.log(`Socket connected: ${socket.id}`);
     socket.join(`user:${socket.user.id}`);
 
@@ -379,10 +420,13 @@ io.on('connection', (socket) => {
     });
 });
 
-server.on('error', err => {
-    if (err.code === 'EADDRINUSE') {
-        console.error(`Port ${PORT} is already in use. Stop the other process or set PORT to a different value.`);
-    } else {
-        console.error('Server error:', err);
-    }
-});
+// Server error handler
+if (server) {
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.error('❌ Port is already in use. Stop the other process or set PORT to a different value.');
+        } else {
+            console.error('❌ Server error:', err);
+        }
+    });
+}
